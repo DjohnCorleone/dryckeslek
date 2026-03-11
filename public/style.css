@@ -185,6 +185,47 @@ input[type="text"]::placeholder { color: var(--dim); }
 
 .hidden { display: none !important; }
 
+/* === Share link === */
+.share-link-box {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.share-link-text {
+  flex: 1;
+  font-size: 0.8rem;
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: "SF Mono", "Courier New", monospace;
+}
+
+.btn-copy {
+  flex-shrink: 0;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--white);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn-copy:active { background: var(--surface-2); }
+.btn-copy.copied {
+  border-color: var(--success);
+  color: var(--success);
+}
+
 /* === Player list === */
 .player-list {
   width: 100%;

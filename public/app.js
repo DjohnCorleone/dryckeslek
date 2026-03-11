@@ -40,6 +40,17 @@ function esc(str) {
   return d.innerHTML;
 }
 
+// ======================== URL PARAMS ========================
+(function handleRoomParam() {
+  const params = new URLSearchParams(window.location.search);
+  const code = params.get("room");
+  if (code) {
+    $("#input-code").value = code.toUpperCase();
+    // Clean the URL without reloading
+    window.history.replaceState({}, "", window.location.pathname);
+  }
+})();
+
 // ======================== HOME ========================
 $("#btn-create").addEventListener("click", () => {
   const name = $("#input-name").value.trim();
@@ -90,6 +101,11 @@ $("#input-code").addEventListener("keydown", (e) => {
 // ======================== LOBBY ========================
 function renderLobby(players) {
   $("#lobby-code").textContent = roomCode;
+
+  // Share link
+  const shareUrl = `${window.location.origin}?room=${roomCode}`;
+  $("#share-link-text").textContent = shareUrl;
+
   const list = $("#lobby-players");
   list.innerHTML = "";
   players.forEach((p) => {
@@ -134,6 +150,21 @@ function renderCustomDares() {
     });
   });
 }
+
+// Copy share link
+$("#btn-copy-link").addEventListener("click", () => {
+  const url = $("#share-link-text").textContent;
+  navigator.clipboard.writeText(url).then(() => {
+    const btn = $("#btn-copy-link");
+    btn.textContent = "Kopierad!";
+    btn.classList.add("copied");
+    setTimeout(() => {
+      btn.textContent = "Kopiera";
+      btn.classList.remove("copied");
+    }, 2000);
+    vibrate(30);
+  });
+});
 
 // Propose dare (lobby)
 $("#btn-propose-dare").addEventListener("click", () => {
@@ -279,11 +310,12 @@ $("#btn-bid").addEventListener("click", () => {
 socket.on("auction:resolving", (data) => {
   const track = $("#roulette-track");
   track.innerHTML = "";
+  track.style.transition = "none";
 
   const names = data.playerNames.map((p) => p.name);
+  const reps = Math.max(80, names.length * 20);
+  const itemH = 80;
 
-  // Fill track with lots of repeated names for a long spin
-  const reps = Math.max(60, names.length * 15);
   for (let i = 0; i < reps; i++) {
     const div = document.createElement("div");
     div.className = "roulette-item";
@@ -297,103 +329,75 @@ socket.on("auction:resolving", (data) => {
   showScreen("resolving");
   vibrate(100);
 
-  // Theme-park wheel animation: fast spin → slow decel → possible bounce-back
-  const itemH = 80;
-  let pos = 0;
-  const startSpeed = 35;
-  const spinDuration = 7000; // longer for suspense
-  const decelStart = Date.now();
-  const willBounce = Math.random() < 0.45; // ~45% chance of bounce-back
-  const bounceAmount = itemH * (0.3 + Math.random() * 0.5); // random overshoot
-  let phase = "spin"; // spin | bounce-back | settle
+  // One continuous position-based animation — like a real theme park wheel
+  const targetIdx = reps - 5 - Math.floor(Math.random() * names.length);
+  const targetPos = targetIdx * itemH;
+  const willBounce = Math.random() < 0.45;
+  const overshoot = willBounce ? itemH * (0.4 + Math.random() * 0.4) : 0;
+  const duration = willBounce ? 7000 : 6500;
+  const startTime = Date.now();
+  let lastTickIdx = -1;
+
+  // Split point: where wheel "stops" and bounce begins
+  const split = 0.65;
+
+  function getPosition(t) {
+    if (!willBounce) {
+      // Quadratic ease-out — sharp stop, no creeping
+      const eased = 1 - (1 - t) * (1 - t);
+      return targetPos * eased;
+    }
+
+    // With bounce: quadratic decelerate to overshoot, then ease back
+    if (t < split) {
+      const p = t / split;
+      // Quadratic ease-out reaches target+overshoot with zero velocity at p=1
+      const eased = 1 - (1 - p) * (1 - p);
+      return (targetPos + overshoot) * eased;
+    }
+
+    // Bounce back immediately — smooth ease-in-out from overshoot to target
+    const p = (t - split) / (1 - split);
+    const eased = p * p * (3 - 2 * p); // smoothstep
+    return (targetPos + overshoot) - overshoot * eased;
+  }
 
   function animate() {
-    const elapsed = Date.now() - decelStart;
+    const elapsed = Date.now() - startTime;
+    const t = Math.min(elapsed / duration, 1);
+    const pos = getPosition(t);
 
-    if (phase === "spin") {
-      const progress = Math.min(elapsed / spinDuration, 1);
+    track.style.transform = `translateY(-${pos}px)`;
 
-      // Strong deceleration curve — like friction on a real wheel
-      // Slow crawl at the very end
-      const eased = 1 - Math.pow(1 - progress, 4);
-      const speed = startSpeed * (1 - eased) + 0.2 * eased;
-
-      pos += speed;
-      const maxPos = (reps - 2) * itemH;
-      if (pos > maxPos) pos = maxPos;
-
-      track.style.transform = `translateY(-${pos}px)`;
-
-      // Add tick sound vibration when passing names slowly
-      if (progress > 0.7) {
-        const currentIdx = Math.floor(pos / itemH);
-        const fraction = (pos % itemH) / itemH;
-        if (fraction < 0.05) vibrate(10);
-      }
-
-      if (progress >= 1) {
-        if (willBounce) {
-          phase = "bounce-back";
-          this._bounceStart = Date.now();
-          this._bounceFrom = pos;
-          // Overshoot forward a bit, then come back
-          this._overshootTarget = pos + bounceAmount;
-        } else {
-          // Done — snap to nearest name
-          snapToName(pos);
-          return;
-        }
+    // Tick vibration when passing names in the slow part
+    if (t > 0.6) {
+      const currentIdx = Math.floor(pos / itemH);
+      if (currentIdx !== lastTickIdx) {
+        lastTickIdx = currentIdx;
+        vibrate(8);
       }
     }
 
-    if (phase === "bounce-back") {
-      const bElapsed = Date.now() - this._bounceStart;
-      const bDuration = 1200;
-      const bProgress = Math.min(bElapsed / bDuration, 1);
+    if (t < 1) {
+      requestAnimationFrame(animate);
+    } else {
+      // Snap to nearest name center
+      const finalIdx = Math.round(pos / itemH);
+      const snappedPos = finalIdx * itemH;
+      track.style.transition = "transform 0.25s ease-out";
+      track.style.transform = `translateY(-${snappedPos}px)`;
 
-      if (bProgress < 0.35) {
-        // Overshoot forward
-        const fwd = bProgress / 0.35;
-        const eased = 1 - Math.pow(1 - fwd, 2);
-        pos = this._bounceFrom + bounceAmount * eased;
-      } else {
-        // Settle back
-        const back = (bProgress - 0.35) / 0.65;
-        const eased = 1 - Math.pow(1 - back, 3);
-        pos = this._bounceFrom + bounceAmount * (1 - eased);
+      const finalItem = track.children[finalIdx];
+      if (finalItem) {
+        setTimeout(() => {
+          finalItem.classList.add("final");
+          vibrate([80, 40, 80, 40, 150]);
+        }, 250);
       }
-
-      track.style.transform = `translateY(-${pos}px)`;
-
-      if (bProgress >= 1) {
-        snapToName(pos);
-        return;
-      }
-    }
-
-    requestAnimationFrame(animate);
-  }
-
-  function snapToName(finalPos) {
-    // Snap to the nearest item center
-    const idx = Math.round(finalPos / itemH);
-    const snappedPos = idx * itemH;
-    track.style.transition = "transform 0.3s ease-out";
-    track.style.transform = `translateY(-${snappedPos}px)`;
-
-    const finalItem = track.children[idx];
-    if (finalItem) {
-      setTimeout(() => {
-        finalItem.classList.add("final");
-        vibrate([80, 40, 80, 40, 150]);
-      }, 300);
     }
   }
 
-  // Use object context for bounce state
-  const ctx = { _bounceStart: 0, _bounceFrom: 0, _overshootTarget: 0 };
-  const boundAnimate = animate.bind(ctx);
-  requestAnimationFrame(boundAnimate);
+  requestAnimationFrame(animate);
 });
 
 // ======================== REVEAL ========================
