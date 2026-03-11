@@ -310,7 +310,7 @@ function resolveAuction(room) {
     },
   });
 
-  // After animation time, send the real result
+  // After roulette animation finishes (~7s spin + possible bounce)
   setTimeout(() => {
     room.state = "reveal";
     io.to(room.code).emit("auction:reveal", {
@@ -325,7 +325,7 @@ function resolveAuction(room) {
       loserName,
       players: getPlayersArray(room),
     });
-  }, 5000);
+  }, 9500);
 }
 
 // --------------- Socket.IO ---------------

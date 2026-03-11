@@ -282,8 +282,8 @@ socket.on("auction:resolving", (data) => {
 
   const names = data.playerNames.map((p) => p.name);
 
-  // Fill track with repeated names for spinning effect
-  const reps = Math.max(30, names.length * 8);
+  // Fill track with lots of repeated names for a long spin
+  const reps = Math.max(60, names.length * 15);
   for (let i = 0; i < reps; i++) {
     const div = document.createElement("div");
     div.className = "roulette-item";
@@ -291,46 +291,109 @@ socket.on("auction:resolving", (data) => {
     track.appendChild(div);
   }
 
-  // Dare info
   $("#resolving-severity").textContent = `${data.dare.severityEmoji} ${data.dare.severityLabel}`;
   $("#resolving-dare-text").textContent = data.dare.text;
 
   showScreen("resolving");
   vibrate(100);
 
-  // Animate: start fast, decelerate
+  // Theme-park wheel animation: fast spin → slow decel → possible bounce-back
   const itemH = 80;
   let pos = 0;
-  let speed = 40; // px per frame
+  const startSpeed = 35;
+  const spinDuration = 7000; // longer for suspense
   const decelStart = Date.now();
-  const duration = 4500; // ms
+  const willBounce = Math.random() < 0.45; // ~45% chance of bounce-back
+  const bounceAmount = itemH * (0.3 + Math.random() * 0.5); // random overshoot
+  let phase = "spin"; // spin | bounce-back | settle
 
   function animate() {
     const elapsed = Date.now() - decelStart;
-    const progress = Math.min(elapsed / duration, 1);
 
-    // Easing: fast start, slow end
-    const eased = 1 - Math.pow(1 - progress, 3);
-    speed = 40 * (1 - eased) + 0.5 * eased;
+    if (phase === "spin") {
+      const progress = Math.min(elapsed / spinDuration, 1);
 
-    pos += speed;
-    const maxPos = (reps - 1) * itemH;
-    if (pos > maxPos) pos = maxPos;
+      // Strong deceleration curve — like friction on a real wheel
+      // Slow crawl at the very end
+      const eased = 1 - Math.pow(1 - progress, 4);
+      const speed = startSpeed * (1 - eased) + 0.2 * eased;
 
-    track.style.transform = `translateY(-${pos}px)`;
+      pos += speed;
+      const maxPos = (reps - 2) * itemH;
+      if (pos > maxPos) pos = maxPos;
 
-    if (progress < 1) {
-      requestAnimationFrame(animate);
-    } else {
-      // Mark the final visible item
-      const idx = Math.round(pos / itemH);
-      const finalItem = track.children[idx];
-      if (finalItem) finalItem.classList.add("final");
-      vibrate([50, 30, 50, 30, 100]);
+      track.style.transform = `translateY(-${pos}px)`;
+
+      // Add tick sound vibration when passing names slowly
+      if (progress > 0.7) {
+        const currentIdx = Math.floor(pos / itemH);
+        const fraction = (pos % itemH) / itemH;
+        if (fraction < 0.05) vibrate(10);
+      }
+
+      if (progress >= 1) {
+        if (willBounce) {
+          phase = "bounce-back";
+          this._bounceStart = Date.now();
+          this._bounceFrom = pos;
+          // Overshoot forward a bit, then come back
+          this._overshootTarget = pos + bounceAmount;
+        } else {
+          // Done — snap to nearest name
+          snapToName(pos);
+          return;
+        }
+      }
+    }
+
+    if (phase === "bounce-back") {
+      const bElapsed = Date.now() - this._bounceStart;
+      const bDuration = 1200;
+      const bProgress = Math.min(bElapsed / bDuration, 1);
+
+      if (bProgress < 0.35) {
+        // Overshoot forward
+        const fwd = bProgress / 0.35;
+        const eased = 1 - Math.pow(1 - fwd, 2);
+        pos = this._bounceFrom + bounceAmount * eased;
+      } else {
+        // Settle back
+        const back = (bProgress - 0.35) / 0.65;
+        const eased = 1 - Math.pow(1 - back, 3);
+        pos = this._bounceFrom + bounceAmount * (1 - eased);
+      }
+
+      track.style.transform = `translateY(-${pos}px)`;
+
+      if (bProgress >= 1) {
+        snapToName(pos);
+        return;
+      }
+    }
+
+    requestAnimationFrame(animate);
+  }
+
+  function snapToName(finalPos) {
+    // Snap to the nearest item center
+    const idx = Math.round(finalPos / itemH);
+    const snappedPos = idx * itemH;
+    track.style.transition = "transform 0.3s ease-out";
+    track.style.transform = `translateY(-${snappedPos}px)`;
+
+    const finalItem = track.children[idx];
+    if (finalItem) {
+      setTimeout(() => {
+        finalItem.classList.add("final");
+        vibrate([80, 40, 80, 40, 150]);
+      }, 300);
     }
   }
 
-  requestAnimationFrame(animate);
+  // Use object context for bounce state
+  const ctx = { _bounceStart: 0, _bounceFrom: 0, _overshootTarget: 0 };
+  const boundAnimate = animate.bind(ctx);
+  requestAnimationFrame(boundAnimate);
 });
 
 // ======================== REVEAL ========================
