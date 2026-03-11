@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Dryckeslek</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- ===== HOME ===== -->
+  <div id="screen-home" class="screen active">
+    <div class="center-content">
+      <h1 class="logo">DRYCKESLEK</h1>
+      <p class="subtitle">Buda för att slippa — lägsta budet förlorar</p>
+      <div class="form-stack">
+        <input type="text" id="input-name" placeholder="Ditt namn" maxlength="16" autocomplete="off" />
+        <button id="btn-create" class="btn btn-white">Skapa rum</button>
+        <div class="divider"><span>eller</span></div>
+        <input type="text" id="input-code" placeholder="Rumskod" maxlength="4" autocomplete="off" class="input-code" />
+        <button id="btn-join" class="btn btn-outline">Gå med</button>
+      </div>
+      <p id="home-error" class="error-msg"></p>
+    </div>
+  </div>
+
+  <!-- ===== LOBBY ===== -->
+  <div id="screen-lobby" class="screen">
+    <div class="page-content">
+      <h2>Rum <span id="lobby-code" class="mono"></span></h2>
+      <p class="hint">Dela koden med dina vänner</p>
+      <div id="lobby-players" class="player-list"></div>
+
+      <div class="section">
+        <h3 class="section-label">Lägg till egen dare</h3>
+        <div class="form-stack compact">
+          <input type="text" id="input-dare-text" placeholder="Skriv en dare..." maxlength="120" autocomplete="off" />
+          <button id="btn-propose-dare" class="btn btn-outline">Föreslå</button>
+        </div>
+        <div id="custom-dares-list" class="dare-list"></div>
+      </div>
+
+      <div id="lobby-host-controls" class="hidden">
+        <button id="btn-start" class="btn btn-white btn-large">Starta spelet</button>
+      </div>
+      <p id="lobby-waiting" class="hint">Väntar på värden...</p>
+      <p id="lobby-error" class="error-msg"></p>
+    </div>
+  </div>
+
+  <!-- ===== AUCTION ===== -->
+  <div id="screen-auction" class="screen">
+    <div class="page-content">
+      <div class="auction-header">
+        <span class="badge">Runda <span id="auction-round">1</span></span>
+        <span class="badge">💰 <span id="auction-budget">0</span></span>
+      </div>
+      <div class="dare-card" id="dare-card">
+        <div class="dare-severity" id="dare-severity"></div>
+        <p class="dare-text" id="dare-text"></p>
+      </div>
+      <div class="timer-bar-wrap">
+        <div class="timer-bar" id="timer-bar"></div>
+      </div>
+      <p class="timer-label"><span id="timer-seconds">30</span>s</p>
+
+      <div id="bid-section" class="bid-section">
+        <p class="bid-label">Ditt bud</p>
+        <div class="bid-controls">
+          <button class="bid-btn" id="bid-minus">−</button>
+          <span class="bid-value" id="bid-value">0</span>
+          <button class="bid-btn" id="bid-plus">+</button>
+        </div>
+        <input type="range" id="bid-slider" min="0" max="20" value="0" />
+        <button id="btn-bid" class="btn btn-white btn-large">Lägg bud</button>
+      </div>
+
+      <div id="bid-placed" class="hidden">
+        <p class="bid-confirmed">Bud lagt ✓</p>
+      </div>
+
+      <div class="bids-status" id="bids-status"></div>
+    </div>
+  </div>
+
+  <!-- ===== RESOLVING (Reveal animation) ===== -->
+  <div id="screen-resolving" class="screen">
+    <div class="center-content">
+      <p class="resolving-label">Vem förlorade?</p>
+      <div class="roulette-container">
+        <div class="roulette-window">
+          <div class="roulette-track" id="roulette-track"></div>
+        </div>
+      </div>
+      <div class="resolving-dare">
+        <span id="resolving-severity" class="dare-severity"></span>
+        <p id="resolving-dare-text" class="dare-text-small"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== REVEAL ===== -->
+  <div id="screen-reveal" class="screen">
+    <div class="page-content">
+      <div class="reveal-dare-box">
+        <span class="dare-severity" id="reveal-severity"></span>
+        <p class="dare-text-small" id="reveal-dare-text"></p>
+      </div>
+
+      <div class="loser-card" id="loser-card">
+        <p class="loser-pre">Förloraren är</p>
+        <h2 class="loser-name" id="loser-name"></h2>
+        <p class="loser-bid">Bud: <span id="loser-bid">0</span></p>
+      </div>
+
+      <div id="reveal-bids" class="bid-results"></div>
+
+      <div class="scoreboard">
+        <h3 class="section-label">Ställning</h3>
+        <div id="scoreboard-list"></div>
+      </div>
+
+      <button id="btn-propose-ingame" class="btn btn-outline btn-small">+ Föreslå dare</button>
+
+      <div id="reveal-host-controls" class="hidden">
+        <button id="btn-next" class="btn btn-white btn-large">Nästa runda →</button>
+      </div>
+      <p id="reveal-waiting" class="hint">Väntar på värden...</p>
+    </div>
+  </div>
+
+  <!-- ===== VOTE OVERLAY ===== -->
+  <div id="vote-overlay" class="overlay hidden">
+    <div class="overlay-card">
+      <p class="vote-type-label" id="vote-type-label"></p>
+      <p class="vote-dare-text" id="vote-dare-text"></p>
+      <p class="vote-proposer" id="vote-proposer"></p>
+
+      <div id="vote-approve-btns" class="vote-buttons">
+        <button class="btn btn-white vote-btn" data-vote="yes">👍 Ja</button>
+        <button class="btn btn-outline vote-btn" data-vote="no">👎 Nej</button>
+      </div>
+
+      <div id="vote-severity-btns" class="vote-severity hidden">
+        <button class="btn btn-outline sev-btn" data-sev="1">😊</button>
+        <button class="btn btn-outline sev-btn" data-sev="2">😅</button>
+        <button class="btn btn-outline sev-btn" data-sev="3">😬</button>
+        <button class="btn btn-outline sev-btn" data-sev="4">🔥</button>
+        <button class="btn btn-outline sev-btn" data-sev="5">💀</button>
+      </div>
+
+      <div id="vote-waiting" class="hidden">
+        <p class="vote-waited">Röst lagd ✓</p>
+      </div>
+
+      <div class="timer-bar-wrap vote-timer">
+        <div class="timer-bar" id="vote-timer-bar"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== VOTE RESULT TOAST ===== -->
+  <div id="vote-result-overlay" class="overlay hidden">
+    <div class="overlay-card result-card">
+      <p class="vote-result-text" id="vote-result-text"></p>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
