@@ -14,6 +14,7 @@ let hasVoted = false;
 let voteTimerTotal = 20;
 let gameMode = "pregame";
 let swRegistration = null;
+let myName = null;
 
 // --- DOM helpers ---
 const $ = (sel) => document.querySelector(sel);
@@ -143,6 +144,7 @@ $("#btn-create").addEventListener("click", () => {
   socket.emit("room:create", { playerName: name }, (res) => {
     if (res.ok) {
       myId = socket.id;
+      myName = name;
       roomCode = res.roomCode;
       isHost = true;
       gameMode = res.mode || "pregame";
@@ -166,6 +168,7 @@ $("#btn-join").addEventListener("click", () => {
   socket.emit("room:join", { roomCode: code, playerName: name }, (res) => {
     if (res.ok) {
       myId = socket.id;
+      myName = name;
       roomCode = res.roomCode;
       isHost = false;
       gameMode = res.mode || "pregame";
@@ -774,6 +777,7 @@ $("#btn-end-game-waiting").addEventListener("click", () => {
 $("#btn-leave").addEventListener("click", () => {
   socket.emit("room:leave", null, () => {
     roomCode = null;
+    myName = null;
     isHost = false;
     myBudget = 0;
     customDares = [];
@@ -899,5 +903,47 @@ socket.on("vote:done", ({ state }) => {
 
 // ======================== CONNECTION ========================
 socket.on("connect", () => {
+  const oldId = myId;
   myId = socket.id;
+
+  // Auto-rejoin room after reconnect (e.g. phone woke from background)
+  if (roomCode && myName && oldId && oldId !== myId) {
+    socket.emit("room:join", { roomCode, playerName: myName }, (res) => {
+      if (res.ok) {
+        const me = res.players.find((p) => p.id === socket.id);
+        if (me) myBudget = me.budget;
+        isHost = res.players[0]?.id === socket.id;
+        gameMode = res.mode || gameMode;
+        customDares = res.customDares || [];
+
+        if (res.gameState === "lobby") {
+          renderLobby(res.players);
+          updateModeButtons();
+          updateRoomCodes();
+          showScreen("lobby");
+        } else if (res.gameState === "countdown") {
+          showCountdownHostControls();
+          updateRoomCodes();
+          showScreen("countdown");
+          socket.emit("game:ready");
+        } else if (res.gameState === "waiting") {
+          showScreen("waiting");
+          socket.emit("game:ready");
+        } else {
+          // auction/resolving/reveal — wait for next server event
+          showScreen("countdown");
+          updateRoomCodes();
+          updateCountdownDisplay(0);
+          socket.emit("game:ready");
+        }
+        showToast("Återansluten!");
+        subscribeToPush();
+      } else {
+        // Room gone or name conflict — go home
+        roomCode = null;
+        myName = null;
+        showScreen("home");
+      }
+    });
+  }
 });
