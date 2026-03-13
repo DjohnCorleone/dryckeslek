@@ -1136,14 +1136,18 @@ const SHOT_OPTIONS = [
 
 let shotSpinning = false;
 
-$("#btn-shot-wheel").addEventListener("click", () => {
+function openShotModal() {
   $("#shot-modal").classList.remove("hidden");
   $("#shot-result").textContent = "";
   const track = $("#shot-roulette-track");
   track.innerHTML = "";
   track.style.transition = "none";
   track.style.transform = "translateY(0)";
-});
+}
+
+$("#btn-shot-wheel").addEventListener("click", openShotModal);
+$("#btn-shot-reveal").addEventListener("click", openShotModal);
+$("#btn-shot-countdown").addEventListener("click", openShotModal);
 
 $("#btn-shot-close").addEventListener("click", () => {
   $("#shot-modal").classList.add("hidden");
