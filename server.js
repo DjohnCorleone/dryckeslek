@@ -5,7 +5,7 @@ const http = require("http");
 const { Server } = require("socket.io");
 const path = require("path");
 const webpush = require("web-push");
-const { pickRandomDare, getSeverityLabel, getSeverityEmoji, DARE_POOLS, SEVERITY_WEIGHTS } = require("./dares");
+const { pickRandomDare, getSeverityLabel, getSeverityEmoji, DARE_POOLS, CATEGORY_WEIGHTS, SHOT_WHEEL } = require("./dares");
 
 // --------------- VAPID / Push setup ---------------
 const VAPID_PUBLIC = process.env.VAPID_PUBLIC_KEY || "";
@@ -226,8 +226,8 @@ function startVote(room, { type, dareText, proposedBy, returnToState }) {
   };
 
   if (type === "severity") {
-    voteData.options = [1, 2, 3, 4, 5];
-    voteData.weights = SEVERITY_WEIGHTS;
+    voteData.options = [1, 2, 3, 4];
+    voteData.weights = CATEGORY_WEIGHTS;
   }
 
   io.to(room.code).emit("vote:start", voteData);
