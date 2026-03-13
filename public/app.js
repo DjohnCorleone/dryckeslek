@@ -314,7 +314,7 @@ socket.on("dare:updated", ({ customDares: dares }) => {
 
 // Interval input (host only)
 $("#input-interval").addEventListener("change", () => {
-  const minutes = parseFloat($("#input-interval").value);
+  const minutes = parseFloat($("#input-interval").value.replace(",", "."));
   if (isNaN(minutes) || minutes < 0.5) return;
   const seconds = Math.round(minutes * 60);
   socket.emit("game:setInterval", { seconds }, (res) => {
