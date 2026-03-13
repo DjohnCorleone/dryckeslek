@@ -146,6 +146,10 @@ function sendPushToRoom(room, payload) {
 
 // --------------- Voting ---------------
 function startVote(room, { type, dareText, proposedBy, returnToState }) {
+  // Pause any running reveal/countdown timers while voting
+  if (room.revealTimer) { clearTimeout(room.revealTimer); room.revealTimer = null; }
+  if (room.countdownTimer) { clearInterval(room.countdownTimer); room.countdownTimer = null; }
+
   room.activeVote = {
     type,
     dareText,
@@ -226,6 +230,8 @@ function resolveVote(room) {
       setTimeout(() => {
         room.state = returnTo;
         io.to(room.code).emit("vote:done", { state: returnTo });
+        // Restart the reveal pause timer if returning to reveal
+        if (returnTo === "reveal") startRevealPause(room);
       }, 2000);
     }
   } else if (vote.type === "severity") {
@@ -266,6 +272,8 @@ function resolveVote(room) {
     setTimeout(() => {
       room.state = returnTo;
       io.to(room.code).emit("vote:done", { state: returnTo });
+      // Restart the reveal pause timer if returning to reveal
+      if (returnTo === "reveal") startRevealPause(room);
     }, 3000);
   }
 }
