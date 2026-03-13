@@ -18,7 +18,10 @@ if (VAPID_PUBLIC && VAPID_PRIVATE) {
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+const io = new Server(server, {
+  pingInterval: 10000,  // ping every 10s (default 25s)
+  pingTimeout: 5000,    // wait 5s for pong (default 20s)
+});
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
@@ -512,30 +515,51 @@ io.on("connection", (socket) => {
     const room = rooms.get(code);
     if (!room) return callback({ ok: false, error: "Rummet finns inte" });
 
-    // Check if a disconnected player with the same name exists — reconnect them
+    // Check if a player with the same name exists — reconnect them
     let reconnectedOldId = null;
     for (const [oldId, p] of room.players) {
       if (p.name.toLowerCase() === playerName.toLowerCase()) {
-        if (!p.connected) {
-          // Reconnect: move player data from old ID to new socket ID
+        if (oldId === socket.id) {
+          // Same socket re-joining (e.g. visibility change) — just confirm
+          reconnectedOldId = oldId;
+          p.connected = true;
+          break;
+        } else if (!p.connected) {
+          // Disconnected player — take over their slot
           reconnectedOldId = oldId;
           room.players.delete(oldId);
           p.connected = true;
           room.players.set(socket.id, p);
-          // Transfer host if the old ID was host
           if (room.hostId === oldId) room.hostId = socket.id;
-          // Transfer ready status
           if (room.readyPlayers.has(oldId)) {
             room.readyPlayers.delete(oldId);
             room.readyPlayers.add(socket.id);
           }
-          // Transfer sudden death participation
           if (room.suddenDeathPlayers) {
             const idx = room.suddenDeathPlayers.indexOf(oldId);
             if (idx !== -1) room.suddenDeathPlayers[idx] = socket.id;
           }
           break;
         } else {
+          // Connected player with same name — check if their socket is actually alive
+          const oldSocket = io.sockets.sockets.get(oldId);
+          if (!oldSocket || !oldSocket.connected) {
+            // Ghost connection — take over
+            reconnectedOldId = oldId;
+            room.players.delete(oldId);
+            p.connected = true;
+            room.players.set(socket.id, p);
+            if (room.hostId === oldId) room.hostId = socket.id;
+            if (room.readyPlayers.has(oldId)) {
+              room.readyPlayers.delete(oldId);
+              room.readyPlayers.add(socket.id);
+            }
+            if (room.suddenDeathPlayers) {
+              const idx = room.suddenDeathPlayers.indexOf(oldId);
+              if (idx !== -1) room.suddenDeathPlayers[idx] = socket.id;
+            }
+            break;
+          }
           return callback({ ok: false, error: "Namnet är redan taget" });
         }
       }
