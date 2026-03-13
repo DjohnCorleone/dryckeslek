@@ -52,6 +52,12 @@ function esc(str) {
   return d.innerHTML;
 }
 
+function updateRoomCodes() {
+  document.querySelectorAll("[data-room-code]").forEach((el) => {
+    el.textContent = roomCode || "";
+  });
+}
+
 function getModeLabel(mode) {
   return mode === "bar" ? "🍻 Bar" : "🏠 Förfest";
 }
@@ -140,6 +146,7 @@ $("#btn-create").addEventListener("click", () => {
       gameMode = res.mode || "pregame";
       renderLobby(res.players);
       updateModeButtons();
+      updateRoomCodes();
       if (res.roundIntervalSec) {
         $("#input-interval").value = res.roundIntervalSec / 60;
       }
@@ -164,6 +171,7 @@ $("#btn-join").addEventListener("click", () => {
       renderLobby(res.players);
       renderCustomDares();
       updateModeButtons();
+      updateRoomCodes();
 
       if (res.joinedMidGame) {
         // Joined mid-game — show countdown/waiting screen
@@ -173,7 +181,7 @@ $("#btn-join").addEventListener("click", () => {
         // Show countdown screen — the server will send countdownTick/waitingForPlayers events
         if (res.gameState === "countdown") {
           showCountdownHostControls();
-          $("#countdown-room-code").textContent = roomCode || "";
+          updateRoomCodes();
           showScreen("countdown");
           socket.emit("game:ready");
         } else if (res.gameState === "waiting") {
@@ -182,7 +190,7 @@ $("#btn-join").addEventListener("click", () => {
         } else {
           // auction/resolving/reveal — just wait for next event
           showScreen("countdown");
-          $("#countdown-room-code").textContent = roomCode || "";
+          updateRoomCodes();
           updateCountdownDisplay(0);
         }
       } else {
@@ -689,7 +697,7 @@ socket.on("game:countdownStart", ({ total, remaining }) => {
   showCountdownHostControls();
   setDangerTheme(0);
   $("#sd-overlay").classList.add("hidden");
-  $("#countdown-room-code").textContent = roomCode || "";
+  updateRoomCodes();
   showScreen("countdown");
 
   // Auto-send ready signal
