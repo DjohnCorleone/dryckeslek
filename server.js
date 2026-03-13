@@ -10,7 +10,10 @@ const { pickRandomDare, getSeverityLabel, getSeverityEmoji, DARE_POOLS, SEVERITY
 // --------------- VAPID / Push setup ---------------
 const VAPID_PUBLIC = process.env.VAPID_PUBLIC_KEY || "";
 const VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY || "";
-const VAPID_EMAIL = process.env.VAPID_EMAIL || "mailto:dryckeslek@example.com";
+let VAPID_EMAIL = process.env.VAPID_EMAIL || "mailto:dryckeslek@example.com";
+if (VAPID_EMAIL && !VAPID_EMAIL.startsWith("mailto:")) {
+  VAPID_EMAIL = "mailto:" + VAPID_EMAIL;
+}
 
 if (VAPID_PUBLIC && VAPID_PRIVATE) {
   webpush.setVapidDetails(VAPID_EMAIL, VAPID_PUBLIC, VAPID_PRIVATE);
