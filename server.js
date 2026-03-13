@@ -513,30 +513,70 @@ io.on("connection", (socket) => {
     const room = rooms.get(code);
     if (!room) return callback({ ok: false, error: "Rummet finns inte" });
 
-    for (const p of room.players.values()) {
+    // Check if a disconnected player with the same name exists — reconnect them
+    let reconnectedOldId = null;
+    for (const [oldId, p] of room.players) {
       if (p.name.toLowerCase() === playerName.toLowerCase()) {
-        return callback({ ok: false, error: "Namnet är redan taget" });
+        if (!p.connected) {
+          // Reconnect: move player data from old ID to new socket ID
+          reconnectedOldId = oldId;
+          room.players.delete(oldId);
+          p.connected = true;
+          room.players.set(socket.id, p);
+          // Transfer host if the old ID was host
+          if (room.hostId === oldId) room.hostId = socket.id;
+          // Transfer ready status
+          if (room.readyPlayers.has(oldId)) {
+            room.readyPlayers.delete(oldId);
+            room.readyPlayers.add(socket.id);
+          }
+          // Transfer sudden death participation
+          if (room.suddenDeathPlayers) {
+            const idx = room.suddenDeathPlayers.indexOf(oldId);
+            if (idx !== -1) room.suddenDeathPlayers[idx] = socket.id;
+          }
+          break;
+        } else {
+          return callback({ ok: false, error: "Namnet är redan taget" });
+        }
       }
     }
 
-    // Calculate budget: average of connected players if game in progress, else starting budget
-    let budget = STARTING_BUDGET;
-    if (room.state !== "lobby") {
-      const connectedBudgets = Array.from(room.players.values())
-        .filter((p) => p.connected)
-        .map((p) => p.budget);
-      if (connectedBudgets.length > 0) {
-        budget = Math.round(connectedBudgets.reduce((a, b) => a + b, 0) / connectedBudgets.length);
+    if (!reconnectedOldId) {
+      // New player — calculate budget
+      let budget = STARTING_BUDGET;
+      if (room.state !== "lobby") {
+        const connectedBudgets = Array.from(room.players.values())
+          .filter((p) => p.connected)
+          .map((p) => p.budget);
+        if (connectedBudgets.length > 0) {
+          budget = Math.round(connectedBudgets.reduce((a, b) => a + b, 0) / connectedBudgets.length);
+        }
       }
+      room.players.set(socket.id, { name: playerName, budget, connected: true });
     }
 
-    room.players.set(socket.id, { name: playerName, budget, connected: true });
     socket.join(code);
 
     const players = getPlayersArray(room);
     const joinedMidGame = room.state !== "lobby";
-    callback({ ok: true, roomCode: code, players, customDares: room.customDares, mode: room.mode, roundIntervalSec: room.roundIntervalSec, joinedMidGame, gameState: room.state });
+    const isReconnect = !!reconnectedOldId;
+    callback({ ok: true, roomCode: code, players, customDares: room.customDares, mode: room.mode, roundIntervalSec: room.roundIntervalSec, joinedMidGame, gameState: room.state, isReconnect });
     socket.to(code).emit("room:playerJoined", { players });
+
+    // If reconnecting during waiting state, check if all are now ready
+    if (isReconnect && room.state === "waiting") {
+      room.readyPlayers.add(socket.id);
+      const connectedIds = getConnectedIds(room);
+      if (connectedIds.every((id) => room.readyPlayers.has(id))) {
+        startAuction(room);
+      } else {
+        const missingNames = connectedIds
+          .filter((id) => !room.readyPlayers.has(id))
+          .map((id) => room.players.get(id)?.name || "???");
+        io.to(room.code).emit("game:waitingForPlayers", { missing: missingNames });
+      }
+    }
   });
 
   // --- Set round interval ---

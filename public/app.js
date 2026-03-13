@@ -175,12 +175,12 @@ $("#btn-join").addEventListener("click", () => {
       updateModeButtons();
       updateRoomCodes();
 
-      if (res.joinedMidGame) {
-        // Joined mid-game — show countdown/waiting screen
+      if (res.joinedMidGame || res.isReconnect) {
+        // Joined/reconnected mid-game
         const me = res.players.find((p) => p.id === socket.id);
         if (me) myBudget = me.budget;
-        showToast(`Gick med! Du har ${me?.budget || 0} credits`);
-        // Show countdown screen — the server will send countdownTick/waitingForPlayers events
+        if (me) isHost = res.players[0]?.id === socket.id;
+        showToast(res.isReconnect ? `Välkommen tillbaka! 💰 ${me?.budget || 0}` : `Gick med! Du har ${me?.budget || 0} credits`);
         if (res.gameState === "countdown") {
           showCountdownHostControls();
           updateRoomCodes();
@@ -190,7 +190,6 @@ $("#btn-join").addEventListener("click", () => {
           showScreen("waiting");
           socket.emit("game:ready");
         } else {
-          // auction/resolving/reveal — just wait for next event
           showScreen("countdown");
           updateRoomCodes();
           updateCountdownDisplay(0);
