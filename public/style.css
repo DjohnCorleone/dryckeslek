@@ -451,7 +451,7 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .roulette-window {
-  height: 80px;
+  height: 140px;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -465,7 +465,7 @@ input[type="range"]::-webkit-slider-thumb {
   position: absolute;
   left: 0;
   right: 0;
-  height: 24px;
+  height: 32px;
   z-index: 2;
   pointer-events: none;
 }
@@ -936,4 +936,47 @@ body.theme-danger .dare-card.sev-danger {
 @keyframes toast-out {
   from { opacity: 1; }
   to { opacity: 0; }
+}
+
+/* === Kick vote prompt === */
+.kick-prompt-overlay {
+  position: fixed;
+  bottom: calc(20px + var(--safe-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 110;
+  width: 90%;
+  max-width: 340px;
+  animation: toast-in 0.3s ease-out;
+}
+
+.kick-prompt-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 20px;
+  text-align: center;
+}
+
+.kick-prompt-text {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.kick-prompt-question {
+  font-size: 0.85rem;
+  color: var(--dim);
+  margin-bottom: 16px;
+}
+
+.kick-prompt-btns {
+  display: flex;
+  gap: 10px;
+}
+
+.kick-prompt-btns .btn {
+  flex: 1;
+  padding: 12px;
+  font-size: 0.9rem;
 }

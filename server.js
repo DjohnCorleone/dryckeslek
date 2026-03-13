@@ -131,6 +131,65 @@ function clearRoomTimers(room) {
   if (room.countdownTimer) { clearInterval(room.countdownTimer); room.countdownTimer = null; }
   if (room.revealTimer) { clearTimeout(room.revealTimer); room.revealTimer = null; }
   if (room.activeVote?.timer) { clearInterval(room.activeVote.timer); }
+  if (room.activeKickVote?.timer) { clearTimeout(room.activeKickVote.timer); }
+}
+
+// --------------- Kick voting ---------------
+function resolveKickVote(room) {
+  const kickVote = room.activeKickVote;
+  if (!kickVote) return;
+
+  if (kickVote.timer) {
+    clearTimeout(kickVote.timer);
+    kickVote.timer = null;
+  }
+
+  let yesCount = 0;
+  const eligibleIds = getConnectedIds(room).filter((id) => id !== kickVote.targetId);
+
+  for (const [id, val] of kickVote.votes) {
+    if (room.players.get(id)?.connected && val === true) yesCount++;
+  }
+
+  const kicked = yesCount > eligibleIds.length / 2;
+
+  if (kicked) {
+    const targetSocket = io.sockets.sockets.get(kickVote.targetId);
+    if (targetSocket) {
+      targetSocket.leave(room.code);
+      targetSocket.emit("kick:removed");
+    }
+    room.players.delete(kickVote.targetId);
+    room.readyPlayers.delete(kickVote.targetId);
+
+    if (room.hostId === kickVote.targetId) {
+      for (const [id, p] of room.players) {
+        if (p.connected) {
+          room.hostId = id;
+          io.to(room.code).emit("room:hostChanged", { newHostId: id, newHostName: p.name });
+          break;
+        }
+      }
+    }
+  }
+
+  io.to(room.code).emit("kick:result", {
+    targetName: kickVote.targetName,
+    kicked,
+    yesCount,
+    totalVoters: eligibleIds.length,
+  });
+
+  room.activeKickVote = null;
+
+  if (kicked) {
+    io.to(room.code).emit("room:playerLeft", {
+      playerId: kickVote.targetId,
+      playerName: kickVote.targetName,
+      players: getPlayersArray(room),
+      voluntary: true,
+    });
+  }
 }
 
 // --------------- Push notifications ---------------
@@ -244,10 +303,9 @@ function resolveVote(room) {
       }
     }
 
-    // Use median for fair severity (resistant to outliers)
-    allVotes.sort((a, b) => a - b);
+    // Use mean (average) for fair severity, especially with 2 players
     const winningSeverity = allVotes.length > 0
-      ? allVotes[Math.floor(allVotes.length / 2)]
+      ? Math.round(allVotes.reduce((sum, v) => sum + v, 0) / allVotes.length)
       : 3;
 
     room.customDares.push({
@@ -317,7 +375,7 @@ function checkReadinessAndStart(room) {
 
   if (notReady.length === 0) {
     // All ready — start!
-    sendPushToRoom(room, { title: "Dryckeslek", body: "Ny runda startar!" });
+    sendPushToRoom(room, { title: "Fils' Thrill", body: "Ny runda startar!" });
     startAuction(room);
   } else {
     // Some not ready — pause and wait
@@ -359,12 +417,15 @@ function startAuction(room) {
   });
 
   let remaining = BID_TIMER_SECONDS;
+  room.bidTimerRemaining = remaining;
   room.bidTimer = setInterval(() => {
     remaining--;
+    room.bidTimerRemaining = remaining;
     io.to(room.code).emit("auction:tick", { remaining });
     if (remaining <= 0) {
       clearInterval(room.bidTimer);
       room.bidTimer = null;
+      room.bidTimerRemaining = 0;
       resolveAuction(room);
     }
   }, 1000);
@@ -384,9 +445,13 @@ function resolveAuction(room) {
     ? room.suddenDeathPlayers.filter((id) => room.players.get(id)?.connected)
     : Array.from(room.players.entries()).filter(([, p]) => p.connected).map(([id]) => id);
 
-  // Default bid 0 for anyone who didn't bid
+  // Default bid 0 for anyone who didn't bid — track who defaulted
+  const defaultedPlayerIds = [];
   for (const id of participantIds) {
-    if (!room.bids.has(id)) room.bids.set(id, 0);
+    if (!room.bids.has(id)) {
+      room.bids.set(id, 0);
+      defaultedPlayerIds.push(id);
+    }
   }
 
   // Find minimum bid among participants
@@ -469,7 +534,34 @@ function resolveAuction(room) {
         loserId,
         loserName,
         players: getPlayersArray(room),
+        defaultedPlayers: defaultedPlayerIds.map((id) => ({
+          id,
+          name: room.players.get(id)?.name || "???",
+        })),
       });
+
+      // Auto-initiate kick vote for defaulted players (who didn't bid)
+      if (defaultedPlayerIds.length > 0 && !room.activeKickVote) {
+        const targetId = defaultedPlayerIds[0]; // Kick one at a time
+        const target = room.players.get(targetId);
+        if (target) {
+          room.activeKickVote = {
+            targetId,
+            targetName: target.name,
+            votes: new Map(),
+          };
+          // Send kick vote to all connected players except the target
+          for (const [id, p] of room.players) {
+            if (p.connected && id !== targetId) {
+              io.to(id).emit("kick:vote", { targetId, targetName: target.name });
+            }
+          }
+          // Auto-resolve after 15 seconds
+          room.activeKickVote.timer = setTimeout(() => {
+            resolveKickVote(room);
+          }, 15000);
+        }
+      }
 
       startRevealPause(room);
     }, 9500);
@@ -500,12 +592,15 @@ function startSuddenDeath(room, tiedPlayerIds, previousBids) {
   });
 
   let remaining = SUDDEN_DEATH_TIMER_SECONDS;
+  room.bidTimerRemaining = remaining;
   room.bidTimer = setInterval(() => {
     remaining--;
+    room.bidTimerRemaining = remaining;
     io.to(room.code).emit("auction:tick", { remaining });
     if (remaining <= 0) {
       clearInterval(room.bidTimer);
       room.bidTimer = null;
+      room.bidTimerRemaining = 0;
       resolveAuction(room);
     }
   }, 1000);
@@ -595,7 +690,30 @@ io.on("connection", (socket) => {
     const players = getPlayersArray(room);
     const joinedMidGame = room.state !== "lobby";
     const isReconnect = !!reconnectedOldId;
-    callback({ ok: true, roomCode: code, players, customDares: room.customDares, mode: room.mode, roundIntervalSec: room.roundIntervalSec, joinedMidGame, gameState: room.state, isReconnect });
+    const callbackData = { ok: true, roomCode: code, players, customDares: room.customDares, mode: room.mode, roundIntervalSec: room.roundIntervalSec, joinedMidGame, gameState: room.state, isReconnect };
+
+    // If reconnecting during active auction, include auction data so client can show bid screen
+    if (isReconnect && room.state === "auction" && room.currentDare) {
+      callbackData.auctionData = {
+        roundNumber: room.roundNumber,
+        mode: room.mode,
+        dare: {
+          text: room.currentDare.text,
+          severity: room.currentDare.severity,
+          severityLabel: getSeverityLabel(room.currentDare.severity),
+          severityEmoji: getSeverityEmoji(room.currentDare.severity),
+        },
+        players,
+        timerSeconds: room.bidTimerRemaining || 0,
+        isSuddenDeath: !!room.suddenDeathPlayers,
+        suddenDeathPlayers: room.suddenDeathPlayers,
+        tiedNames: room.suddenDeathPlayers
+          ? room.suddenDeathPlayers.map((id) => room.players.get(id)?.name || "???")
+          : null,
+      };
+    }
+
+    callback(callbackData);
     socket.to(code).emit("room:playerJoined", { players });
 
     // If reconnecting during waiting state, check if all are now ready
@@ -721,7 +839,7 @@ io.on("connection", (socket) => {
       const connectedIds = getConnectedIds(room);
       const allReady = connectedIds.every((id) => room.readyPlayers.has(id));
       if (allReady) {
-        sendPushToRoom(room, { title: "Dryckeslek", body: "Ny runda startar!" });
+        sendPushToRoom(room, { title: "Fils' Thrill", body: "Ny runda startar!" });
         startAuction(room);
       }
     }
@@ -733,7 +851,7 @@ io.on("connection", (socket) => {
     if (!room) return callback?.({ ok: false });
     if (room.hostId !== socket.id) return callback?.({ ok: false, error: "Bara värden" });
     if (room.state !== "waiting") return callback?.({ ok: false });
-    sendPushToRoom(room, { title: "Dryckeslek", body: "Ny runda startar!" });
+    sendPushToRoom(room, { title: "Fils' Thrill", body: "Ny runda startar!" });
     startAuction(room);
     callback?.({ ok: true });
   });
@@ -794,6 +912,7 @@ io.on("connection", (socket) => {
     io.to(room.code).emit("room:playerLeft", {
       playerId: socket.id, playerName,
       players: getPlayersArray(room),
+      voluntary: true,
     });
 
     // Clean up empty rooms
@@ -811,15 +930,35 @@ io.on("connection", (socket) => {
       }
     }
 
-    // If waiting and now all ready, start
+    // If waiting and now all ready, start; otherwise update waiting list
     if (room.state === "waiting" && room.players.size > 0) {
       const connectedIds = getConnectedIds(room);
       if (connectedIds.length > 0 && connectedIds.every((id) => room.readyPlayers.has(id))) {
         startAuction(room);
+      } else if (connectedIds.length > 0) {
+        const missingNames = connectedIds
+          .filter((id) => !room.readyPlayers.has(id))
+          .map((id) => room.players.get(id)?.name || "???");
+        io.to(room.code).emit("game:waitingForPlayers", { missing: missingNames });
       }
     }
 
     callback?.({ ok: true });
+  });
+
+  // --- Kick vote ---
+  socket.on("kick:cast", ({ targetId, vote }, callback) => {
+    const room = getRoomByPlayer(socket.id);
+    if (!room || !room.activeKickVote) return callback?.({ ok: false });
+    if (room.activeKickVote.targetId !== targetId) return callback?.({ ok: false });
+
+    room.activeKickVote.votes.set(socket.id, vote);
+    callback?.({ ok: true });
+
+    const eligibleIds = getConnectedIds(room).filter((id) => id !== room.activeKickVote.targetId);
+    if (room.activeKickVote.votes.size >= eligibleIds.length) {
+      resolveKickVote(room);
+    }
   });
 
   socket.on("disconnect", () => {
@@ -844,6 +983,7 @@ io.on("connection", (socket) => {
     io.to(room.code).emit("room:playerLeft", {
       playerId: socket.id, playerName: player.name,
       players: getPlayersArray(room),
+      voluntary: false,
     });
 
     if (room.activeVote) {

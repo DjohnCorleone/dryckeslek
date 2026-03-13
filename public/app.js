@@ -189,7 +189,9 @@ $("#btn-join").addEventListener("click", () => {
         if (me) myBudget = me.budget;
         if (me) isHost = res.players[0]?.id === socket.id;
         showToast(res.isReconnect ? `Välkommen tillbaka! 💰 ${me?.budget || 0}` : `Gick med! Du har ${me?.budget || 0} credits`);
-        if (res.gameState === "countdown") {
+        if (res.gameState === "auction" && res.auctionData) {
+          showAuctionScreen(res.auctionData);
+        } else if (res.gameState === "countdown") {
           showCountdownHostControls();
           updateRoomCodes();
           showScreen("countdown");
@@ -366,10 +368,11 @@ socket.on("room:playerJoined", ({ players }) => {
   showToast("Ny spelare!");
 });
 
-socket.on("room:playerLeft", ({ playerName, players }) => {
+socket.on("room:playerLeft", ({ playerName, players, voluntary }) => {
   const active = document.querySelector(".screen.active")?.id;
   if (active === "screen-lobby") renderLobby(players);
-  showToast(`${playerName} lämnade`);
+  // Only show toast for voluntary leaves (click ✕), not passive disconnects
+  if (voluntary) showToast(`${playerName} lämnade`);
 });
 
 socket.on("room:hostChanged", ({ newHostId, newHostName }) => {
@@ -466,8 +469,73 @@ $("#btn-bid").addEventListener("click", () => {
   });
 });
 
+// Helper: show auction screen from reconnect data
+function showAuctionScreen(data) {
+  hasBid = false;
+  currentBid = 0;
+
+  const me = data.players.find((p) => p.id === socket.id);
+  myBudget = me ? me.budget : 0;
+  maxBid = myBudget;
+
+  if (data.mode) gameMode = data.mode;
+
+  if (data.isSuddenDeath && data.suddenDeathPlayers) {
+    const amParticipant = data.suddenDeathPlayers.includes(socket.id);
+    $("#auction-mode-badge").textContent = "SUDDEN DEATH";
+    $("#auction-round").textContent = data.roundNumber;
+    $("#auction-budget").textContent = myBudget;
+    $("#dare-text").textContent = data.dare.text;
+    $("#dare-severity").textContent = `${data.dare.severityEmoji} ${data.dare.severityLabel}`;
+    $("#dare-card").className = `dare-card${data.dare.severity >= 4 ? " sev-danger" : ""}`;
+    timerTotal = data.timerSeconds || 15;
+    $("#timer-seconds").textContent = timerTotal;
+    $("#timer-bar").style.width = "100%";
+    if (amParticipant) {
+      updateBidDisplay();
+      $("#bid-slider").max = maxBid;
+      $("#bid-slider").value = 0;
+      $("#bid-section").classList.remove("hidden");
+      $("#bid-placed").classList.add("hidden");
+    } else {
+      $("#bid-section").classList.add("hidden");
+      $("#bid-placed").classList.remove("hidden");
+      $(".bid-confirmed").textContent = `Sudden Death: ${(data.tiedNames || []).join(" vs ")}`;
+    }
+    $(".auction-header").classList.add("hidden");
+    const sdOverlay = $("#sd-overlay");
+    $("#sd-player-left").textContent = (data.tiedNames || [])[0] || "";
+    $("#sd-player-right").textContent = (data.tiedNames || [])[1] || "";
+    sdOverlay.classList.remove("hidden");
+  } else {
+    $("#auction-mode-badge").textContent = getModeLabel(gameMode);
+    $("#auction-round").textContent = data.roundNumber;
+    $("#auction-budget").textContent = myBudget;
+    $("#dare-text").textContent = data.dare.text;
+    $("#dare-severity").textContent = `${data.dare.severityEmoji} ${data.dare.severityLabel}`;
+    $("#dare-card").className = `dare-card${data.dare.severity >= 4 ? " sev-danger" : ""}`;
+    timerTotal = data.timerSeconds || 30;
+    $("#timer-seconds").textContent = timerTotal;
+    $("#timer-bar").style.width = "100%";
+    updateBidDisplay();
+    $("#bid-slider").max = maxBid;
+    $("#bid-slider").value = 0;
+    $("#bid-section").classList.remove("hidden");
+    $("#bid-placed").classList.add("hidden");
+    $("#sd-overlay").classList.add("hidden");
+    $(".auction-header").classList.remove("hidden");
+  }
+
+  $("#bids-status").innerHTML = "";
+  setDangerTheme(data.dare.severity);
+  showScreen("auction");
+}
+
 // ======================== RESOLVING (Roulette) ========================
 socket.on("auction:resolving", (data) => {
+  // Hide sudden death overlay so it doesn't push the spinner down on mobile
+  $("#sd-overlay").classList.add("hidden");
+
   const track = $("#roulette-track");
   track.innerHTML = "";
   track.style.transition = "none";
@@ -684,6 +752,8 @@ socket.on("auction:reveal", (data) => {
   setDangerTheme(0); // Clear danger theme on reveal
   $("#sd-overlay").classList.add("hidden"); // Hide SD overlay
   showScreen("reveal");
+
+  // Kick prompts are sent via kick:vote from the server for defaulted players
 });
 
 // Reveal pause — show countdown in the hint
@@ -934,8 +1004,10 @@ socket.on("connect", () => {
         } else if (res.gameState === "waiting") {
           showScreen("waiting");
           socket.emit("game:ready");
+        } else if (res.gameState === "auction" && res.auctionData) {
+          showAuctionScreen(res.auctionData);
         } else {
-          // auction/resolving/reveal — wait for next server event
+          // resolving/reveal — wait for next server event
           showScreen("countdown");
           updateRoomCodes();
           updateCountdownDisplay(0);
@@ -951,6 +1023,60 @@ socket.on("connect", () => {
       }
     });
   }
+});
+
+// ======================== KICK VOTE ========================
+function showKickPrompt(targetId, targetName) {
+  // Remove any existing kick prompt
+  document.querySelectorAll(".kick-prompt-overlay").forEach((el) => el.remove());
+
+  const overlay = document.createElement("div");
+  overlay.className = "kick-prompt-overlay";
+  overlay.innerHTML = `
+    <div class="kick-prompt-card">
+      <p class="kick-prompt-text">${esc(targetName)} deltog inte i budgivningen.</p>
+      <p class="kick-prompt-question">Har spelaren lämnat?</p>
+      <div class="kick-prompt-btns">
+        <button class="btn btn-outline kick-btn" data-vote="yes">Ja, kicka</button>
+        <button class="btn btn-outline kick-btn" data-vote="no">Nej, behåll</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  overlay.querySelectorAll(".kick-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const vote = btn.dataset.vote === "yes";
+      socket.emit("kick:cast", { targetId, vote });
+      overlay.remove();
+    });
+  });
+
+  // Auto-dismiss after 15 seconds
+  setTimeout(() => {
+    if (overlay.parentNode) overlay.remove();
+  }, 15000);
+}
+
+socket.on("kick:vote", ({ targetId, targetName }) => {
+  showKickPrompt(targetId, targetName);
+});
+
+socket.on("kick:result", ({ targetName, kicked }) => {
+  document.querySelectorAll(".kick-prompt-overlay").forEach((el) => el.remove());
+  showToast(kicked ? `${targetName} sparkades` : `${targetName} stannar kvar`);
+});
+
+socket.on("kick:removed", () => {
+  roomCode = null;
+  myName = null;
+  isHost = false;
+  myBudget = 0;
+  customDares = [];
+  setDangerTheme(0);
+  $("#sd-overlay").classList.add("hidden");
+  showScreen("home");
+  showToast("Du har blivit kickad");
 });
 
 // Handle mobile app resume — force reconnect if socket died silently
