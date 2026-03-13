@@ -132,16 +132,51 @@ function urlBase64ToUint8Array(base64String) {
 registerServiceWorker();
 
 // ======================== URL PARAMS ========================
+let hasRoomParam = false;
 (function handleRoomParam() {
   const params = new URLSearchParams(window.location.search);
   const code = params.get("room");
   if (code) {
-    $("#input-code").value = code.toUpperCase();
+    hasRoomParam = true;
+    const upperCode = code.toUpperCase();
+    // Show shared layout, hide default
+    $("#layout-default").classList.add("hidden");
+    $("#layout-shared").classList.remove("hidden");
+    $("#input-code-shared").value = upperCode;
+    // Also set hidden default input for compatibility
+    $("#input-code").value = upperCode;
     window.history.replaceState({}, "", window.location.pathname);
   }
 })();
 
+// ======================== HOW IT WORKS ========================
+$("#btn-how").addEventListener("click", () => {
+  $("#how-modal").classList.remove("hidden");
+});
+$("#btn-how-close").addEventListener("click", () => {
+  $("#how-modal").classList.add("hidden");
+});
+$("#how-modal").addEventListener("click", (e) => {
+  if (e.target === $("#how-modal")) $("#how-modal").classList.add("hidden");
+});
+
 // ======================== HOME ========================
+// Shared layout buttons delegate to the same logic
+$("#btn-create-shared")?.addEventListener("click", () => {
+  // Switch back to default layout to create a room
+  $("#layout-shared").classList.add("hidden");
+  $("#layout-default").classList.remove("hidden");
+  hasRoomParam = false;
+  $("#input-code").value = "";
+  $("#btn-create").click();
+});
+
+$("#btn-join-shared")?.addEventListener("click", () => {
+  // Use the shared code
+  $("#input-code").value = $("#input-code-shared").value;
+  $("#btn-join").click();
+});
+
 $("#btn-create").addEventListener("click", () => {
   const name = $("#input-name").value.trim();
   if (!name) return ($("#home-error").textContent = "Skriv ditt namn!");
