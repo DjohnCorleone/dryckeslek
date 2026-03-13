@@ -12,6 +12,8 @@ let hasBid = false;
 let customDares = [];
 let hasVoted = false;
 let voteTimerTotal = 20;
+let gameMode = "pregame";
+let swRegistration = null;
 
 // --- DOM helpers ---
 const $ = (sel) => document.querySelector(sel);
@@ -21,6 +23,16 @@ function showScreen(id) {
   screens.forEach((s) => s.classList.remove("active"));
   $(`#screen-${id}`).classList.add("active");
 }
+
+function setDangerTheme(severity) {
+  // Apply dark red background for severe dares (4-5)
+  if (severity >= 5) {
+    document.body.classList.add("theme-danger");
+  } else {
+    document.body.classList.remove("theme-danger");
+  }
+}
+
 
 function showToast(msg) {
   const t = document.createElement("div");
@@ -40,13 +52,77 @@ function esc(str) {
   return d.innerHTML;
 }
 
+function getModeLabel(mode) {
+  return mode === "bar" ? "🍻 Bar" : "🏠 Förfest";
+}
+
+function updateModeButtons() {
+  const lobbyBtn = $("#btn-mode-lobby");
+  const countdownBtn = $("#btn-mode-countdown");
+  if (lobbyBtn) lobbyBtn.textContent = gameMode === "pregame" ? "🍻 Byt till Bar" : "🏠 Byt till Förfest";
+  if (countdownBtn) countdownBtn.textContent = gameMode === "pregame" ? "🍻 Nu går vi ut" : "🏠 Tillbaka till förfesten";
+}
+
+// ======================== SERVICE WORKER + PUSH ========================
+async function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) return;
+  try {
+    swRegistration = await navigator.serviceWorker.register("/sw.js");
+  } catch (e) {
+    console.warn("SW registration failed:", e);
+  }
+}
+
+async function subscribeToPush() {
+  if (!swRegistration || !("PushManager" in window)) return;
+  try {
+    // Ask for notification permission
+    const perm = await Notification.requestPermission();
+    if (perm !== "granted") return;
+
+    // Get VAPID public key
+    const res = await fetch("/api/push/vapid-key");
+    const { publicKey } = await res.json();
+    if (!publicKey) return;
+
+    // Convert VAPID key
+    const vapidBytes = urlBase64ToUint8Array(publicKey);
+
+    // Subscribe
+    const subscription = await swRegistration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: vapidBytes,
+    });
+
+    // Send to server
+    await fetch("/api/push/subscribe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ subscription, roomCode, playerId: socket.id }),
+    });
+  } catch (e) {
+    console.warn("Push subscription failed:", e);
+  }
+}
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(base64);
+  const arr = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+  return arr;
+}
+
+// Register SW on load
+registerServiceWorker();
+
 // ======================== URL PARAMS ========================
 (function handleRoomParam() {
   const params = new URLSearchParams(window.location.search);
   const code = params.get("room");
   if (code) {
     $("#input-code").value = code.toUpperCase();
-    // Clean the URL without reloading
     window.history.replaceState({}, "", window.location.pathname);
   }
 })();
@@ -61,7 +137,12 @@ $("#btn-create").addEventListener("click", () => {
       myId = socket.id;
       roomCode = res.roomCode;
       isHost = true;
+      gameMode = res.mode || "pregame";
       renderLobby(res.players);
+      updateModeButtons();
+      if (res.roundIntervalSec) {
+        $("#input-interval").value = res.roundIntervalSec / 60;
+      }
       showScreen("lobby");
     }
   });
@@ -78,10 +159,35 @@ $("#btn-join").addEventListener("click", () => {
       myId = socket.id;
       roomCode = res.roomCode;
       isHost = false;
+      gameMode = res.mode || "pregame";
       customDares = res.customDares || [];
       renderLobby(res.players);
       renderCustomDares();
-      showScreen("lobby");
+      updateModeButtons();
+
+      if (res.joinedMidGame) {
+        // Joined mid-game — show countdown/waiting screen
+        const me = res.players.find((p) => p.id === socket.id);
+        if (me) myBudget = me.budget;
+        showToast(`Gick med! Du har ${me?.budget || 0} credits`);
+        // Show countdown screen — the server will send countdownTick/waitingForPlayers events
+        if (res.gameState === "countdown") {
+          showCountdownHostControls();
+          $("#countdown-room-code").textContent = roomCode || "";
+          showScreen("countdown");
+          socket.emit("game:ready");
+        } else if (res.gameState === "waiting") {
+          showScreen("waiting");
+          socket.emit("game:ready");
+        } else {
+          // auction/resolving/reveal — just wait for next event
+          showScreen("countdown");
+          $("#countdown-room-code").textContent = roomCode || "";
+          updateCountdownDisplay(0);
+        }
+      } else {
+        showScreen("lobby");
+      }
     } else {
       $("#home-error").textContent = res.error;
     }
@@ -197,10 +303,43 @@ socket.on("dare:updated", ({ customDares: dares }) => {
   renderCustomDares();
 });
 
+// Interval input (host only)
+$("#input-interval").addEventListener("change", () => {
+  const minutes = parseFloat($("#input-interval").value);
+  if (isNaN(minutes) || minutes < 0.5) return;
+  const seconds = Math.round(minutes * 60);
+  socket.emit("game:setInterval", { seconds }, (res) => {
+    if (res?.ok) {
+      $("#input-interval").value = res.seconds / 60;
+    }
+  });
+});
+
+socket.on("game:intervalChanged", ({ seconds }) => {
+  $("#input-interval").value = seconds / 60;
+});
+
+// Mode toggle
+function handleModeSwitch() {
+  socket.emit("game:switchMode", null, (res) => {
+    if (!res.ok && res.error) showToast(res.error);
+  });
+}
+$("#btn-mode-lobby").addEventListener("click", handleModeSwitch);
+$("#btn-mode-countdown").addEventListener("click", handleModeSwitch);
+
+socket.on("game:modeChanged", ({ mode }) => {
+  gameMode = mode;
+  updateModeButtons();
+  showToast(mode === "bar" ? "Nu kör vi bar-läge!" : "Tillbaka till förfesten!");
+  vibrate(80);
+});
+
 // Start game
 $("#btn-start").addEventListener("click", () => {
   socket.emit("game:start", null, (res) => {
     if (!res.ok) $("#lobby-error").textContent = res.error;
+    else subscribeToPush(); // Subscribe to push when game starts
   });
 });
 
@@ -230,11 +369,13 @@ socket.on("auction:start", (data) => {
   myBudget = me ? me.budget : 0;
   maxBid = myBudget;
 
+  if (data.mode) gameMode = data.mode;
+  $("#auction-mode-badge").textContent = getModeLabel(gameMode);
   $("#auction-round").textContent = data.roundNumber;
   $("#auction-budget").textContent = myBudget;
   $("#dare-text").textContent = data.dare.text;
   $("#dare-severity").textContent = `${data.dare.severityEmoji} ${data.dare.severityLabel}`;
-  $("#dare-card").className = `dare-card${data.dare.severity === 5 ? " sev-5" : ""}`;
+  $("#dare-card").className = `dare-card${data.dare.severity >= 4 ? " sev-danger" : ""}`;
 
   timerTotal = data.timerSeconds;
   $("#timer-seconds").textContent = timerTotal;
@@ -247,6 +388,11 @@ socket.on("auction:start", (data) => {
   $("#bid-placed").classList.add("hidden");
   $("#bids-status").innerHTML = "";
 
+  // Hide sudden death overlay if present, restore header
+  $("#sd-overlay").classList.add("hidden");
+  $(".auction-header").classList.remove("hidden");
+
+  setDangerTheme(data.dare.severity);
   showScreen("auction");
   vibrate(100);
 });
@@ -259,14 +405,11 @@ socket.on("auction:tick", ({ remaining }) => {
 });
 
 socket.on("auction:bidsUpdate", ({ bidsStatus }) => {
+  const entries = Object.entries(bidsStatus);
+  const total = entries.length;
+  const done = entries.filter(([, d]) => d).length;
   const c = $("#bids-status");
-  c.innerHTML = "";
-  for (const [, done] of Object.entries(bidsStatus)) {
-    const chip = document.createElement("span");
-    chip.className = `bid-chip${done ? " done" : ""}`;
-    chip.textContent = done ? "✓" : "···";
-    c.appendChild(chip);
-  }
+  c.innerHTML = `<span class="bids-counter">${done}/${total}</span>`;
 });
 
 function updateBidDisplay() {
@@ -313,52 +456,75 @@ socket.on("auction:resolving", (data) => {
   track.style.transition = "none";
 
   const names = data.playerNames.map((p) => p.name);
+  const isTie = data.isTie;
+  const tiedNames = data.tiedNames || [];
   const reps = Math.max(80, names.length * 20);
   const itemH = 80;
+
+  // For ties, arrange names so two tied players are adjacent near the end
+  let orderedNames = names;
+  if (isTie && tiedNames.length >= 2) {
+    // Ensure the two tied players appear next to each other in the cycle
+    const others = names.filter((n) => !tiedNames.includes(n));
+    orderedNames = [...others, ...tiedNames];
+  }
 
   for (let i = 0; i < reps; i++) {
     const div = document.createElement("div");
     div.className = "roulette-item";
-    div.textContent = names[i % names.length];
+    div.textContent = orderedNames[i % orderedNames.length];
     track.appendChild(div);
   }
 
   $("#resolving-severity").textContent = `${data.dare.severityEmoji} ${data.dare.severityLabel}`;
   $("#resolving-dare-text").textContent = data.dare.text;
 
+  // Hide/show tie label
+  const tieLabel = $("#resolving-tie-label");
+  if (tieLabel) tieLabel.classList.add("hidden");
+
+  setDangerTheme(data.dare.severity);
   showScreen("resolving");
   vibrate(100);
 
-  // One continuous position-based animation — like a real theme park wheel
-  const targetIdx = reps - 5 - Math.floor(Math.random() * names.length);
-  const targetPos = targetIdx * itemH;
-  const willBounce = Math.random() < 0.45;
+  let targetIdx;
+  if (isTie && tiedNames.length >= 2) {
+    // Find the last occurrence of the first tied player near the end
+    // Land between the two tied players (half-item offset)
+    const cycleLen = orderedNames.length;
+    const firstTiedIdx = orderedNames.indexOf(tiedNames[0]);
+    // Find the position near the end of the track where tied players are adjacent
+    const baseIdx = reps - cycleLen + firstTiedIdx;
+    targetIdx = baseIdx;
+  } else {
+    targetIdx = reps - 5 - Math.floor(Math.random() * names.length);
+  }
+
+  // For tie: offset by half an item to land between the two names
+  const targetPos = isTie
+    ? targetIdx * itemH + itemH * 0.5
+    : targetIdx * itemH;
+
+  const willBounce = !isTie && Math.random() < 0.45;
   const overshoot = willBounce ? itemH * (0.4 + Math.random() * 0.4) : 0;
-  const duration = willBounce ? 7000 : 6500;
+  const duration = willBounce ? 7000 : isTie ? 7500 : 6500;
   const startTime = Date.now();
   let lastTickIdx = -1;
 
-  // Split point: where wheel "stops" and bounce begins
   const split = 0.65;
 
   function getPosition(t) {
     if (!willBounce) {
-      // Quadratic ease-out — sharp stop, no creeping
       const eased = 1 - (1 - t) * (1 - t);
       return targetPos * eased;
     }
-
-    // With bounce: quadratic decelerate to overshoot, then ease back
     if (t < split) {
       const p = t / split;
-      // Quadratic ease-out reaches target+overshoot with zero velocity at p=1
       const eased = 1 - (1 - p) * (1 - p);
       return (targetPos + overshoot) * eased;
     }
-
-    // Bounce back immediately — smooth ease-in-out from overshoot to target
     const p = (t - split) / (1 - split);
-    const eased = p * p * (3 - 2 * p); // smoothstep
+    const eased = p * p * (3 - 2 * p);
     return (targetPos + overshoot) - overshoot * eased;
   }
 
@@ -369,7 +535,6 @@ socket.on("auction:resolving", (data) => {
 
     track.style.transform = `translateY(-${pos}px)`;
 
-    // Tick vibration when passing names in the slow part
     if (t > 0.6) {
       const currentIdx = Math.floor(pos / itemH);
       if (currentIdx !== lastTickIdx) {
@@ -381,18 +546,27 @@ socket.on("auction:resolving", (data) => {
     if (t < 1) {
       requestAnimationFrame(animate);
     } else {
-      // Snap to nearest name center
-      const finalIdx = Math.round(pos / itemH);
-      const snappedPos = finalIdx * itemH;
-      track.style.transition = "transform 0.25s ease-out";
-      track.style.transform = `translateY(-${snappedPos}px)`;
+      if (isTie) {
+        // Don't snap — stay between the two names
+        vibrate([100, 50, 100, 50, 100, 50, 200]);
+        if (tieLabel) {
+          tieLabel.textContent = `SUDDEN DEATH — ${tiedNames.join(" vs ")}`;
+          tieLabel.classList.remove("hidden");
+        }
+      } else {
+        // Snap to nearest name center
+        const finalIdx = Math.round(pos / itemH);
+        const snappedPos = finalIdx * itemH;
+        track.style.transition = "transform 0.25s ease-out";
+        track.style.transform = `translateY(-${snappedPos}px)`;
 
-      const finalItem = track.children[finalIdx];
-      if (finalItem) {
-        setTimeout(() => {
-          finalItem.classList.add("final");
-          vibrate([80, 40, 80, 40, 150]);
-        }, 250);
+        const finalItem = track.children[finalIdx];
+        if (finalItem) {
+          setTimeout(() => {
+            finalItem.classList.add("final");
+            vibrate([80, 40, 80, 40, 150]);
+          }, 250);
+        }
       }
     }
   }
@@ -400,20 +574,66 @@ socket.on("auction:resolving", (data) => {
   requestAnimationFrame(animate);
 });
 
+// ======================== SUDDEN DEATH ========================
+socket.on("auction:suddenDeath", (data) => {
+  hasBid = false;
+  currentBid = 0;
+
+  const me = data.players.find((p) => p.id === socket.id);
+  myBudget = me ? me.budget : 0;
+  maxBid = myBudget;
+
+  const amParticipant = data.tiedPlayers.includes(socket.id);
+
+  if (data.mode) gameMode = data.mode;
+  $("#auction-mode-badge").textContent = "SUDDEN DEATH";
+  $("#auction-round").textContent = data.roundNumber;
+  $("#auction-budget").textContent = myBudget;
+  $("#dare-text").textContent = data.dare.text;
+  $("#dare-severity").textContent = `${data.dare.severityEmoji} ${data.dare.severityLabel}`;
+  $("#dare-card").className = `dare-card${data.dare.severity >= 4 ? " sev-danger" : ""}`;
+
+  timerTotal = data.timerSeconds;
+  $("#timer-seconds").textContent = timerTotal;
+  $("#timer-bar").style.width = "100%";
+
+  if (amParticipant) {
+    updateBidDisplay();
+    $("#bid-slider").max = maxBid;
+    $("#bid-slider").value = 0;
+    $("#bid-section").classList.remove("hidden");
+    $("#bid-placed").classList.add("hidden");
+  } else {
+    $("#bid-section").classList.add("hidden");
+    $("#bid-placed").classList.remove("hidden");
+    $(".bid-confirmed").textContent = `Sudden Death: ${data.tiedNames.join(" vs ")}`;
+  }
+
+  $("#bids-status").innerHTML = "";
+
+  // Show sudden death face-off overlay, hide normal header
+  $(".auction-header").classList.add("hidden");
+  const sdOverlay = $("#sd-overlay");
+  $("#sd-player-left").textContent = data.tiedNames[0] || "";
+  $("#sd-player-right").textContent = data.tiedNames[1] || "";
+  sdOverlay.classList.remove("hidden");
+
+  setDangerTheme(data.dare.severity);
+  showScreen("auction");
+  vibrate([150, 50, 150]);
+});
+
 // ======================== REVEAL ========================
 socket.on("auction:reveal", (data) => {
-  // Dare
   $("#reveal-severity").textContent = `${data.dare.severityEmoji} ${data.dare.severityLabel}`;
   $("#reveal-dare-text").textContent = data.dare.text;
 
-  // Loser
   const isMe = data.loserId === socket.id;
   $("#loser-name").textContent = isMe ? "DU!" : data.loserName;
   $("#loser-bid").textContent = `${data.bids.find((b) => b.isLoser)?.bid ?? 0} credits`;
 
   if (isMe) vibrate([100, 50, 100, 50, 200]);
 
-  // Bids
   const bidsContainer = $("#reveal-bids");
   bidsContainer.innerHTML = "";
   data.bids.forEach((b) => {
@@ -426,7 +646,6 @@ socket.on("auction:reveal", (data) => {
     bidsContainer.appendChild(row);
   });
 
-  // Scoreboard
   const scoreList = $("#scoreboard-list");
   scoreList.innerHTML = "";
   [...data.players].filter((p) => p.connected).sort((a, b) => b.budget - a.budget).forEach((p) => {
@@ -442,21 +661,112 @@ socket.on("auction:reveal", (data) => {
   const me = data.players.find((p) => p.id === socket.id);
   if (me) myBudget = me.budget;
 
-  if (isHost) {
-    $("#reveal-host-controls").classList.remove("hidden");
-    $("#reveal-waiting").classList.add("hidden");
-  } else {
-    $("#reveal-host-controls").classList.add("hidden");
-    $("#reveal-waiting").classList.remove("hidden");
-  }
+  // Show auto-hint (no host controls needed on reveal now)
+  $("#reveal-auto-hint").classList.remove("hidden");
 
+  setDangerTheme(0); // Clear danger theme on reveal
+  $("#sd-overlay").classList.add("hidden"); // Hide SD overlay
   showScreen("reveal");
 });
 
-$("#btn-next").addEventListener("click", () => {
-  socket.emit("game:nextRound", null, (res) => {
+// Reveal pause — show countdown in the hint
+socket.on("game:revealPause", ({ seconds }) => {
+  let remaining = seconds;
+  const el = $("#reveal-countdown");
+  if (el) el.textContent = `${remaining}s`;
+
+  if (window._revealCountdownTimer) clearInterval(window._revealCountdownTimer);
+  window._revealCountdownTimer = setInterval(() => {
+    remaining--;
+    if (el) el.textContent = remaining > 0 ? `${remaining}s` : "";
+    if (remaining <= 0) clearInterval(window._revealCountdownTimer);
+  }, 1000);
+});
+
+// ======================== COUNTDOWN ========================
+socket.on("game:countdownStart", ({ total, remaining }) => {
+  updateCountdownDisplay(remaining);
+  showCountdownHostControls();
+  setDangerTheme(0);
+  $("#sd-overlay").classList.add("hidden");
+  $("#countdown-room-code").textContent = roomCode || "";
+  showScreen("countdown");
+
+  // Auto-send ready signal
+  socket.emit("game:ready");
+});
+
+socket.on("game:countdownTick", ({ remaining }) => {
+  updateCountdownDisplay(remaining);
+});
+
+function updateCountdownDisplay(remaining) {
+  const mins = Math.floor(remaining / 60);
+  const secs = remaining % 60;
+  $("#countdown-minutes").textContent = mins;
+  $("#countdown-secs").textContent = secs.toString().padStart(2, "0");
+}
+
+function showCountdownHostControls() {
+  if (isHost) {
+    $("#countdown-host-controls").classList.remove("hidden");
+    updateModeButtons();
+  } else {
+    $("#countdown-host-controls").classList.add("hidden");
+  }
+}
+
+// ======================== WAITING FOR PLAYERS ========================
+socket.on("game:waitingForPlayers", ({ missing }) => {
+  const container = $("#waiting-missing");
+  container.innerHTML = "";
+  missing.forEach((name) => {
+    const chip = document.createElement("div");
+    chip.className = "waiting-chip";
+    chip.textContent = name;
+    container.appendChild(chip);
+  });
+
+  if (isHost) {
+    $("#waiting-host-controls").classList.remove("hidden");
+    $("#waiting-hint").classList.add("hidden");
+  } else {
+    $("#waiting-host-controls").classList.add("hidden");
+    $("#waiting-hint").classList.remove("hidden");
+  }
+
+  showScreen("waiting");
+
+  // Auto-send ready signal (we're here, so we're ready)
+  socket.emit("game:ready");
+});
+
+// Force start (host)
+$("#btn-force-start").addEventListener("click", () => {
+  socket.emit("game:forceStart", null, (res) => {
     if (!res.ok && res.error) showToast(res.error);
   });
+});
+
+// End game buttons
+$("#btn-end-game").addEventListener("click", () => {
+  socket.emit("game:end", null, (res) => {
+    if (!res.ok && res.error) showToast(res.error);
+  });
+});
+
+$("#btn-end-game-waiting").addEventListener("click", () => {
+  socket.emit("game:end", null, (res) => {
+    if (!res.ok && res.error) showToast(res.error);
+  });
+});
+
+// Game ended → back to lobby
+socket.on("game:ended", ({ players }) => {
+  renderLobby(players);
+  updateModeButtons();
+  showScreen("lobby");
+  showToast("Spelet avslutat");
 });
 
 // ======================== VOTING ========================
@@ -478,8 +788,19 @@ socket.on("vote:start", (data) => {
     $("#vote-approve-btns").classList.add("hidden");
     $("#vote-severity-btns").classList.remove("hidden");
     $("#vote-waiting").classList.add("hidden");
-    // Reset selected state
     document.querySelectorAll(".sev-btn").forEach((b) => b.classList.remove("selected"));
+
+    // Show probability weights
+    if (data.weights) {
+      const totalWeight = Object.values(data.weights).reduce((a, b) => a + b, 0);
+      document.querySelectorAll(".sev-btn").forEach((btn) => {
+        const sev = btn.dataset.sev;
+        const w = data.weights[sev] || 0;
+        const pct = Math.round((w / totalWeight) * 100);
+        const label = btn.querySelector(".sev-pct");
+        if (label) label.textContent = `${pct}%`;
+      });
+    }
   }
 
   $("#vote-timer-bar").style.width = "100%";
@@ -491,9 +812,7 @@ socket.on("vote:tick", ({ remaining }) => {
   $("#vote-timer-bar").style.width = `${(remaining / voteTimerTotal) * 100}%`;
 });
 
-socket.on("vote:update", () => {
-  // Could show vote count, keeping it simple
-});
+socket.on("vote:update", () => {});
 
 // Approve vote buttons
 document.querySelectorAll("#vote-approve-btns .vote-btn").forEach((btn) => {
@@ -547,11 +866,12 @@ socket.on("vote:result", (data) => {
 });
 
 socket.on("vote:done", ({ state }) => {
-  // Return to the appropriate screen
   if (state === "lobby") {
     showScreen("lobby");
   } else if (state === "reveal") {
     showScreen("reveal");
+  } else if (state === "countdown") {
+    showScreen("countdown");
   }
 });
 
