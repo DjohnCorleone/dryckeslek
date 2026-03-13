@@ -1,7 +1,7 @@
-// Service Worker for Dryckeslek push notifications
+// Service Worker for Fils' Thrill push notifications
 
 self.addEventListener("push", (event) => {
-  let data = { title: "Dryckeslek", body: "Ny runda!" };
+  let data = { title: "Fils' Thrill", body: "Ny runda!" };
   try {
     data = event.data.json();
   } catch (e) {}
@@ -9,10 +9,10 @@ self.addEventListener("push", (event) => {
   event.waitUntil(
     self.registration.showNotification(data.title, {
       body: data.body,
-      icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍻</text></svg>",
-      badge: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍻</text></svg>",
+      icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%23000000'/><text y='.9em' font-size='90'>🦹‍♀️</text></svg>",
+      badge: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%23000000'/><text y='.9em' font-size='90'>🦹‍♀️</text></svg>",
       vibrate: [200, 100, 200],
-      tag: "dryckeslek-round",
+      tag: "fils-thrill-round",
       renotify: true,
     })
   );
