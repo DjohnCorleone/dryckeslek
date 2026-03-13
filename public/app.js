@@ -22,6 +22,8 @@ const screens = document.querySelectorAll(".screen");
 function showScreen(id) {
   screens.forEach((s) => s.classList.remove("active"));
   $(`#screen-${id}`).classList.add("active");
+  // Show leave button on all screens except home
+  $("#btn-leave").classList.toggle("hidden", id === "home");
 }
 
 function setDangerTheme(severity) {
@@ -766,6 +768,19 @@ $("#btn-end-game").addEventListener("click", () => {
 $("#btn-end-game-waiting").addEventListener("click", () => {
   socket.emit("game:end", null, (res) => {
     if (!res.ok && res.error) showToast(res.error);
+  });
+});
+
+// Leave room
+$("#btn-leave").addEventListener("click", () => {
+  socket.emit("room:leave", null, () => {
+    roomCode = null;
+    isHost = false;
+    myBudget = 0;
+    customDares = [];
+    setDangerTheme(0);
+    $("#sd-overlay").classList.add("hidden");
+    showScreen("home");
   });
 });
 

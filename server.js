@@ -695,6 +695,59 @@ io.on("connection", (socket) => {
     callback?.({ ok: true, mode: room.mode });
   });
 
+  // --- Leave room voluntarily ---
+  socket.on("room:leave", (_, callback) => {
+    const room = getRoomByPlayer(socket.id);
+    if (!room) return callback?.({ ok: false });
+    const player = room.players.get(socket.id);
+    const playerName = player?.name || "???";
+
+    socket.leave(room.code);
+    room.players.delete(socket.id);
+    room.readyPlayers.delete(socket.id);
+
+    // Transfer host if needed
+    if (room.hostId === socket.id) {
+      for (const [id, p] of room.players) {
+        if (p.connected) {
+          room.hostId = id;
+          io.to(room.code).emit("room:hostChanged", { newHostId: id, newHostName: p.name });
+          break;
+        }
+      }
+    }
+
+    io.to(room.code).emit("room:playerLeft", {
+      playerId: socket.id, playerName,
+      players: getPlayersArray(room),
+    });
+
+    // Clean up empty rooms
+    const anyConnected = Array.from(room.players.values()).some((p) => p.connected);
+    if (!anyConnected || room.players.size === 0) {
+      clearRoomTimers(room);
+      rooms.delete(room.code);
+    }
+
+    // If in auction and all remaining have bid, resolve
+    if (room.state === "auction" && room.players.size > 0) {
+      const connectedCount = getConnectedIds(room).length;
+      if (connectedCount > 0 && room.bids.size >= connectedCount) {
+        resolveAuction(room);
+      }
+    }
+
+    // If waiting and now all ready, start
+    if (room.state === "waiting" && room.players.size > 0) {
+      const connectedIds = getConnectedIds(room);
+      if (connectedIds.length > 0 && connectedIds.every((id) => room.readyPlayers.has(id))) {
+        startAuction(room);
+      }
+    }
+
+    callback?.({ ok: true });
+  });
+
   socket.on("disconnect", () => {
     const room = getRoomByPlayer(socket.id);
     if (!room) return;
