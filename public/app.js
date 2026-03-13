@@ -1,4 +1,9 @@
-const socket = io();
+const socket = io({
+  reconnection: true,
+  reconnectionDelay: 1000,
+  reconnectionDelayMax: 5000,
+  timeout: 10000,
+});
 
 // --- State ---
 let myId = null;
@@ -945,5 +950,18 @@ socket.on("connect", () => {
         showScreen("home");
       }
     });
+  }
+});
+
+// Handle mobile app resume — force reconnect if socket died silently
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && roomCode && myName) {
+    if (!socket.connected) {
+      // Socket died while in background — reconnect
+      socket.connect();
+    } else {
+      // Socket still connected but may have missed events — re-emit ready
+      socket.emit("game:ready");
+    }
   }
 });
