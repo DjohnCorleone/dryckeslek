@@ -18,12 +18,39 @@
       <p class="subtitle">Buda för att slippa — lägsta budet förlorar</p>
       <div class="form-stack">
         <input type="text" id="input-name" placeholder="Ditt namn" maxlength="16" autocomplete="off" />
-        <button id="btn-create" class="btn btn-white">Skapa rum</button>
-        <div class="divider"><span>eller</span></div>
-        <input type="text" id="input-code" placeholder="Rumskod" maxlength="4" autocomplete="off" class="input-code" />
-        <button id="btn-join" class="btn btn-outline">Gå med</button>
+        <!-- Default layout: Create primary, Join secondary -->
+        <div id="layout-default">
+          <button id="btn-create" class="btn btn-white">Skapa rum</button>
+          <div class="divider"><span>eller</span></div>
+          <input type="text" id="input-code" placeholder="Rumskod" maxlength="4" autocomplete="off" class="input-code" />
+          <button id="btn-join" class="btn btn-outline">Gå med</button>
+        </div>
+        <!-- Shared link layout: Join primary, Create secondary -->
+        <div id="layout-shared" class="hidden">
+          <input type="text" id="input-code-shared" placeholder="Rumskod" maxlength="4" autocomplete="off" class="input-code" readonly />
+          <button id="btn-join-shared" class="btn btn-white">Gå med</button>
+          <div class="divider"><span>eller</span></div>
+          <button id="btn-create-shared" class="btn btn-outline">Skapa nytt rum</button>
+        </div>
       </div>
       <p id="home-error" class="error-msg"></p>
+      <button id="btn-how" class="btn-how">Hur funkar det?</button>
+    </div>
+  </div>
+
+  <!-- ===== HOW IT WORKS MODAL ===== -->
+  <div id="how-modal" class="how-modal hidden">
+    <div class="how-card">
+      <h2>Hur funkar det?</h2>
+      <ol class="how-list">
+        <li><strong>Skapa eller gå med</strong> i ett rum med dina vänner.</li>
+        <li>Varje runda visas en <strong>dare</strong> med en svårighetsgrad.</li>
+        <li>Alla lägger ett <strong>hemligt bud</strong> med sina credits.</li>
+        <li>Den som bjuder <strong>lägst förlorar</strong> och måste utföra daren!</li>
+        <li>Lika bud? <strong>Sudden Death</strong> — de tävlar igen.</li>
+        <li>Spara credits klokt — de tar slut!</li>
+      </ol>
+      <button id="btn-how-close" class="btn btn-white">Fattar!</button>
     </div>
   </div>
 
