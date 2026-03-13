@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#0a0a0a" />
+  <link rel="manifest" href="/manifest.json" />
   <title>Dryckeslek</title>
   <link rel="stylesheet" href="style.css" />
 </head>
@@ -45,6 +47,16 @@
       </div>
 
       <div id="lobby-host-controls" class="hidden">
+        <div class="section">
+          <h3 class="section-label">Tid mellan rundor</h3>
+          <div class="interval-input-wrap">
+            <input type="number" id="input-interval" min="0.5" step="0.5" value="3" class="input-interval" />
+            <span class="interval-unit">min</span>
+          </div>
+        </div>
+        <div class="mode-toggle-section">
+          <button id="btn-mode-lobby" class="btn btn-mode">🏠 Förfest</button>
+        </div>
         <button id="btn-start" class="btn btn-white btn-large">Starta spelet</button>
       </div>
       <p id="lobby-waiting" class="hint">Väntar på värden...</p>
@@ -56,6 +68,7 @@
   <div id="screen-auction" class="screen">
     <div class="page-content">
       <div class="auction-header">
+        <span class="badge" id="auction-mode-badge">🏠 Förfest</span>
         <span class="badge">Runda <span id="auction-round">1</span></span>
         <span class="badge">💰 <span id="auction-budget">0</span></span>
       </div>
@@ -96,6 +109,7 @@
           <div class="roulette-track" id="roulette-track"></div>
         </div>
       </div>
+      <p id="resolving-tie-label" class="resolving-tie-label hidden"></p>
       <div class="resolving-dare">
         <span id="resolving-severity" class="dare-severity"></span>
         <p id="resolving-dare-text" class="dare-text-small"></p>
@@ -126,10 +140,35 @@
 
       <button id="btn-propose-ingame" class="btn btn-outline btn-small">+ Föreslå dare</button>
 
-      <div id="reveal-host-controls" class="hidden">
-        <button id="btn-next" class="btn btn-white btn-large">Nästa runda →</button>
+      <p class="hint" id="reveal-auto-hint">Nästa runda startar om <span id="reveal-countdown"></span></p>
+    </div>
+  </div>
+
+  <!-- ===== COUNTDOWN ===== -->
+  <div id="screen-countdown" class="screen">
+    <div class="center-content">
+      <p class="countdown-label">Nästa runda om</p>
+      <div class="countdown-display">
+        <span id="countdown-minutes">0</span>:<span id="countdown-secs">00</span>
       </div>
-      <p id="reveal-waiting" class="hint">Väntar på värden...</p>
+      <div id="countdown-host-controls" class="hidden">
+        <button id="btn-mode-countdown" class="btn btn-mode">🍻 Nu går vi ut</button>
+        <button id="btn-end-game" class="btn btn-outline">Avsluta spelet</button>
+      </div>
+      <p class="countdown-room-code" id="countdown-room-code"></p>
+    </div>
+  </div>
+
+  <!-- ===== WAITING FOR PLAYERS ===== -->
+  <div id="screen-waiting" class="screen">
+    <div class="center-content">
+      <p class="waiting-label">Väntar på spelare</p>
+      <div id="waiting-missing" class="waiting-missing"></div>
+      <div id="waiting-host-controls" class="hidden">
+        <button id="btn-force-start" class="btn btn-white btn-large">Kör ändå</button>
+        <button id="btn-end-game-waiting" class="btn btn-outline">Avsluta spelet</button>
+      </div>
+      <p id="waiting-hint" class="hint">Väntar på att alla ska komma tillbaka...</p>
     </div>
   </div>
 
@@ -146,11 +185,11 @@
       </div>
 
       <div id="vote-severity-btns" class="vote-severity hidden">
-        <button class="btn btn-outline sev-btn" data-sev="1">😊</button>
-        <button class="btn btn-outline sev-btn" data-sev="2">😅</button>
-        <button class="btn btn-outline sev-btn" data-sev="3">😬</button>
-        <button class="btn btn-outline sev-btn" data-sev="4">🔥</button>
-        <button class="btn btn-outline sev-btn" data-sev="5">💀</button>
+        <button class="btn btn-outline sev-btn" data-sev="1"><span class="sev-emoji">😊</span><span class="sev-pct"></span></button>
+        <button class="btn btn-outline sev-btn" data-sev="2"><span class="sev-emoji">😅</span><span class="sev-pct"></span></button>
+        <button class="btn btn-outline sev-btn" data-sev="3"><span class="sev-emoji">😬</span><span class="sev-pct"></span></button>
+        <button class="btn btn-outline sev-btn" data-sev="4"><span class="sev-emoji">🔥</span><span class="sev-pct"></span></button>
+        <button class="btn btn-outline sev-btn" data-sev="5"><span class="sev-emoji">💀</span><span class="sev-pct"></span></button>
       </div>
 
       <div id="vote-waiting" class="hidden">
@@ -168,6 +207,16 @@
     <div class="overlay-card result-card">
       <p class="vote-result-text" id="vote-result-text"></p>
     </div>
+  </div>
+
+  <!-- ===== SUDDEN DEATH OVERLAY ===== -->
+  <div id="sd-overlay" class="sd-overlay hidden">
+    <div class="sd-faceoff">
+      <span class="sd-player" id="sd-player-left"></span>
+      <span class="sd-vs">VS</span>
+      <span class="sd-player" id="sd-player-right"></span>
+    </div>
+    <p class="sd-label">SUDDEN DEATH</p>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
