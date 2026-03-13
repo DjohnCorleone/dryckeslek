@@ -35,6 +35,22 @@
       </div>
       <p id="home-error" class="error-msg"></p>
       <button id="btn-how" class="btn-how">Hur funkar det?</button>
+      <button id="btn-shot-wheel" class="btn-how">🥃 Shot-roulette</button>
+    </div>
+  </div>
+
+  <!-- ===== SHOT WHEEL MODAL ===== -->
+  <div id="shot-modal" class="how-modal hidden">
+    <div class="how-card shot-card">
+      <h2>🥃 Shot-roulette</h2>
+      <div class="roulette-container">
+        <div class="roulette-window">
+          <div class="roulette-track" id="shot-roulette-track"></div>
+        </div>
+      </div>
+      <p id="shot-result" class="shot-result"></p>
+      <button id="btn-shot-spin" class="btn btn-white">Snurra!</button>
+      <button id="btn-shot-close" class="btn btn-outline btn-small" style="margin-top:10px">Stäng</button>
     </div>
   </div>
 
@@ -216,11 +232,10 @@
       </div>
 
       <div id="vote-severity-btns" class="vote-severity hidden">
-        <button class="btn btn-outline sev-btn" data-sev="1"><span class="sev-emoji">😊</span><span class="sev-pct"></span></button>
-        <button class="btn btn-outline sev-btn" data-sev="2"><span class="sev-emoji">😅</span><span class="sev-pct"></span></button>
-        <button class="btn btn-outline sev-btn" data-sev="3"><span class="sev-emoji">😬</span><span class="sev-pct"></span></button>
-        <button class="btn btn-outline sev-btn" data-sev="4"><span class="sev-emoji">🔥</span><span class="sev-pct"></span></button>
-        <button class="btn btn-outline sev-btn" data-sev="5"><span class="sev-emoji">💀</span><span class="sev-pct"></span></button>
+        <button class="btn btn-outline sev-btn" data-sev="1"><span class="sev-emoji">😅</span><span class="sev-pct"></span></button>
+        <button class="btn btn-outline sev-btn" data-sev="2"><span class="sev-emoji">😬</span><span class="sev-pct"></span></button>
+        <button class="btn btn-outline sev-btn" data-sev="3"><span class="sev-emoji">🔥</span><span class="sev-pct"></span></button>
+        <button class="btn btn-outline sev-btn" data-sev="4"><span class="sev-emoji">💀</span><span class="sev-pct"></span></button>
       </div>
 
       <div id="vote-waiting" class="hidden">

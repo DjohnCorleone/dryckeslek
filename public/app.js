@@ -33,8 +33,8 @@ function showScreen(id) {
 }
 
 function setDangerTheme(severity) {
-  // Apply dark red background for severe dares (4-5)
-  if (severity >= 5) {
+  // Apply dark red background for hemsk dares (4)
+  if (severity >= 4) {
     document.body.classList.add("theme-danger");
   } else {
     document.body.classList.remove("theme-danger");
@@ -291,7 +291,7 @@ function renderLobby(players) {
 function renderCustomDares() {
   const list = $("#custom-dares-list");
   list.innerHTML = "";
-  const emojis = { 1: "😊", 2: "😅", 3: "😬", 4: "🔥", 5: "💀" };
+  const emojis = { 1: "😅", 2: "😬", 3: "🔥", 4: "💀" };
   customDares.forEach((d, i) => {
     const item = document.createElement("div");
     item.className = "dare-list-item";
@@ -1125,4 +1125,91 @@ document.addEventListener("visibilitychange", () => {
       socket.emit("game:ready");
     }
   }
+});
+
+// ======================== SHOT WHEEL ========================
+const SHOT_OPTIONS = [
+  "Jägermeister", "Tequila", "Sambuca", "Fernet Branca", "Fireball",
+  "Vodka", "Whiskey", "Rom", "Limoncello", "Minttu",
+  "Grappa", "Baileys", "Kahlúa", "Grön Chartreuse",
+];
+
+let shotSpinning = false;
+
+$("#btn-shot-wheel").addEventListener("click", () => {
+  $("#shot-modal").classList.remove("hidden");
+  $("#shot-result").textContent = "";
+  const track = $("#shot-roulette-track");
+  track.innerHTML = "";
+  track.style.transition = "none";
+  track.style.transform = "translateY(0)";
+});
+
+$("#btn-shot-close").addEventListener("click", () => {
+  $("#shot-modal").classList.add("hidden");
+});
+
+$("#shot-modal").addEventListener("click", (e) => {
+  if (e.target === $("#shot-modal")) $("#shot-modal").classList.add("hidden");
+});
+
+$("#btn-shot-spin").addEventListener("click", () => {
+  if (shotSpinning) return;
+  shotSpinning = true;
+  $("#shot-result").textContent = "";
+
+  const track = $("#shot-roulette-track");
+  track.innerHTML = "";
+  track.style.transition = "none";
+  track.style.transform = "translateY(0)";
+
+  const reps = Math.max(80, SHOT_OPTIONS.length * 10);
+  const itemH = 80;
+
+  for (let i = 0; i < reps; i++) {
+    const div = document.createElement("div");
+    div.className = "roulette-item";
+    div.textContent = SHOT_OPTIONS[i % SHOT_OPTIONS.length];
+    track.appendChild(div);
+  }
+
+  const targetIdx = reps - 3 - Math.floor(Math.random() * SHOT_OPTIONS.length);
+  const targetPos = targetIdx * itemH;
+  const willBounce = Math.random() < 0.45;
+  const overshoot = willBounce ? itemH * (0.4 + Math.random() * 0.4) : 0;
+  const duration = willBounce ? 6000 : 5000;
+  const startTime = Date.now();
+  const split = 0.65;
+
+  function getPos(t) {
+    if (!willBounce) {
+      const eased = 1 - (1 - t) * (1 - t);
+      return targetPos * eased;
+    }
+    if (t < split) {
+      const p = t / split;
+      const eased = 1 - (1 - p) * (1 - p);
+      return (targetPos + overshoot) * eased;
+    }
+    const p = (t - split) / (1 - split);
+    const eased = p * p * (3 - 2 * p);
+    return (targetPos + overshoot) - overshoot * eased;
+  }
+
+  function animate() {
+    const elapsed = Date.now() - startTime;
+    const t = Math.min(elapsed / duration, 1);
+    track.style.transform = `translateY(-${getPos(t)}px)`;
+
+    if (t < 1) {
+      requestAnimationFrame(animate);
+    } else {
+      const winner = SHOT_OPTIONS[targetIdx % SHOT_OPTIONS.length];
+      $("#shot-result").textContent = `🥃 ${winner}!`;
+      vibrate(200);
+      shotSpinning = false;
+    }
+  }
+
+  requestAnimationFrame(animate);
 });
