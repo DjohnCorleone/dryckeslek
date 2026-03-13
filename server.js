@@ -224,20 +224,19 @@ function resolveVote(room) {
     }
   } else if (vote.type === "severity") {
     const counts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+    const allVotes = [];
     for (const [id, val] of vote.votes) {
       if (room.players.get(id)?.connected && val >= 1 && val <= 5) {
         counts[val]++;
+        allVotes.push(val);
       }
     }
 
-    let winningSeverity = 3;
-    let maxCount = 0;
-    for (let s = 5; s >= 1; s--) {
-      if (counts[s] > maxCount) {
-        maxCount = counts[s];
-        winningSeverity = s;
-      }
-    }
+    // Use median for fair severity (resistant to outliers)
+    allVotes.sort((a, b) => a - b);
+    const winningSeverity = allVotes.length > 0
+      ? allVotes[Math.floor(allVotes.length / 2)]
+      : 3;
 
     room.customDares.push({
       text: vote.dareText,
