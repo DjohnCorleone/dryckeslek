@@ -1032,10 +1032,6 @@ body.theme-danger .dare-card.sev-danger {
   gap: 10px;
   font-size: 0.9rem;
   line-height: 1.4;
-  color: var(--dim);
-}
-
-.how-list strong {
   color: var(--white);
 }
 
