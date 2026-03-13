@@ -22,8 +22,8 @@ if (VAPID_PUBLIC && VAPID_PRIVATE) {
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-  pingInterval: 10000,  // ping every 10s (default 25s)
-  pingTimeout: 5000,    // wait 5s for pong (default 20s)
+  pingInterval: 25000,  // ping every 25s (default)
+  pingTimeout: 20000,   // wait 20s for pong (default)
 });
 
 app.use(express.json());
